@@ -1,5 +1,22 @@
 extends Node3D
 
+class FlightRadar extends Control:
+	var blips: Array[Dictionary] = []
+
+	func _draw() -> void:
+		var radius := minf(size.x, size.y) * 0.5 - 3.0
+		var center := size * 0.5
+		draw_circle(center, radius, Color(0.018, 0.09, 0.18, 0.88))
+		draw_arc(center, radius, 0.0, TAU, 48, Color(0.25, 0.78, 1.0, 0.9), 3.0, true)
+		draw_arc(center, radius * 0.66, 0.0, TAU, 48, Color(0.22, 0.63, 0.9, 0.34), 1.0, true)
+		draw_arc(center, radius * 0.32, 0.0, TAU, 48, Color(0.22, 0.63, 0.9, 0.28), 1.0, true)
+		draw_line(Vector2(center.x - radius, center.y), Vector2(center.x + radius, center.y), Color(0.22, 0.63, 0.9, 0.25), 1.0)
+		draw_line(Vector2(center.x, center.y - radius), Vector2(center.x, center.y + radius), Color(0.22, 0.63, 0.9, 0.25), 1.0)
+		for blip in blips:
+			var offset: Vector2 = blip.offset
+			draw_circle(center + offset * radius * 0.78, 4.0, blip.tint)
+		draw_colored_polygon(PackedVector2Array([center + Vector2(0, -8), center + Vector2(-5, 6), center + Vector2(0, 3), center + Vector2(5, 6)]), Color(1.0, 0.91, 0.45))
+
 enum ScreenState { HANGAR, SHOP, RUN, GAME_OVER }
 
 const PROFILE_PATH := "user://pilot_profile.cfg"
@@ -27,8 +44,11 @@ var score_label: Label
 var scrap_label: Label
 var difficulty_label: Label
 var steering_hint: Label
+var aiming_reticle: Label
+var radar_widget: FlightRadar
 var fire_button: Button
 var boost_button: Button
+var boost_meter: ProgressBar
 var shop_status: Label
 var shop_buttons: Dictionary = {}
 
@@ -83,6 +103,10 @@ func _build_world() -> void:
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.34, 0.27, 0.72)
 	environment.ambient_light_energy = 0.82
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.025, 0.095, 0.2)
+	environment.fog_density = 0.004
+	environment.fog_sun_scatter = 0.22
 	world_environment.environment = environment
 	add_child(world_environment)
 
@@ -114,14 +138,14 @@ func _build_starfield() -> void:
 	multi.transform_format = MultiMesh.TRANSFORM_3D
 	multi.use_colors = true
 	multi.mesh = cube
-	multi.instance_count = 260
+	multi.instance_count = 430
 	for i in range(multi.instance_count):
 		var x := rng.randf_range(-100.0, 100.0)
 		var y := rng.randf_range(-65.0, 65.0)
 		var z := rng.randf_range(-190.0, 40.0)
 		var scale_value := rng.randf_range(0.35, 1.25)
 		multi.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * scale_value), Vector3(x, y, z)))
-		var tint := Color(0.40, 0.61, 1.0).lerp(Color(1.0, 0.58, 0.35), rng.randf())
+		var tint := Color(0.34, 0.62, 1.0).lerp(Color(0.72, 0.83, 1.0), rng.randf())
 		multi.set_instance_color(i, tint)
 	stars = MultiMeshInstance3D.new()
 	stars.multimesh = multi
@@ -148,13 +172,15 @@ func _rebuild_ship_mesh() -> void:
 	for child in player.get_children():
 		if child is MeshInstance3D:
 			child.queue_free()
-	var hull := _make_block(Vector3(0.0, 0.0, 0.25), Vector3(1.55, 0.8, 3.0), Color(0.78, 0.85, 0.93))
+	var hull := _make_block(Vector3(0.0, 0.0, 0.25), Vector3(1.55, 0.8, 3.0), Color(0.81, 0.23, 0.25))
 	player.add_child(hull)
-	var nose := _make_block(Vector3(0.0, 0.04, -1.55), Vector3(1.08, 0.53, 1.0), Color(0.32, 0.83, 1.0))
+	var nose := _make_block(Vector3(0.0, 0.04, -1.55), Vector3(1.08, 0.53, 1.0), Color(1.0, 0.73, 0.23))
 	player.add_child(nose)
 	var cockpit := _make_block(Vector3(0.0, 0.55, -0.25), Vector3(0.72, 0.42, 1.0), Color(0.11, 0.25, 0.48))
 	player.add_child(cockpit)
 	for side in [-1.0, 1.0]:
+		var wing := _make_block(Vector3(side * 1.12, 0.03, -0.35), Vector3(1.1, 0.2, 1.55), Color(0.86, 0.92, 1.0))
+		player.add_child(wing)
 		var engine := _make_block(Vector3(side * 0.92, -0.08, 1.05), Vector3(0.48, 0.58, 1.45), Color(0.27, 0.38, 0.58))
 		player.add_child(engine)
 		var glow := _make_block(Vector3(side * 0.92, -0.08, 1.83), Vector3(0.28, 0.3, 0.15), Color(0.13, 0.78, 1.0), true)
@@ -292,6 +318,12 @@ func _build_ui() -> void:
 	steering_hint = _label("DRAG ANYWHERE ON LEFT SIDE TO STEER", 17, Color(0.75, 0.85, 1.0))
 	steering_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(steering_hint)
+	aiming_reticle = _label("[  ×  ]", 25, Color(0.79, 0.91, 1.0, 0.72))
+	aiming_reticle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hud.add_child(aiming_reticle)
+	radar_widget = FlightRadar.new()
+	radar_widget.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(radar_widget)
 	fire_button = _button("FIRE", 24)
 	fire_button.button_down.connect(func(): firing = true)
 	fire_button.button_up.connect(func(): firing = false)
@@ -299,6 +331,20 @@ func _build_ui() -> void:
 	boost_button = _button("BOOST", 21)
 	boost_button.button_down.connect(_activate_boost)
 	hud.add_child(boost_button)
+	boost_meter = ProgressBar.new()
+	boost_meter.show_percentage = false
+	boost_meter.min_value = 0.0
+	boost_meter.max_value = 1.0
+	var meter_background := StyleBoxFlat.new()
+	meter_background.bg_color = Color(0.025, 0.07, 0.14, 0.9)
+	meter_background.border_color = Color(0.18, 0.52, 0.86, 0.9)
+	meter_background.set_border_width_all(2)
+	boost_meter.add_theme_stylebox_override("background", meter_background)
+	var meter_fill := StyleBoxFlat.new()
+	meter_fill.bg_color = Color(0.98, 0.76, 0.2)
+	meter_fill.set_corner_radius_all(5)
+	boost_meter.add_theme_stylebox_override("fill", meter_fill)
+	hud.add_child(boost_meter)
 	_layout_ui()
 	_show_hangar()
 
@@ -365,6 +411,12 @@ func _layout_ui() -> void:
 		boost_button.size = Vector2(action_button_width, h * 0.11)
 		steering_hint.position = Vector2(w * 0.18, h * 0.91)
 		steering_hint.size = Vector2(w * 0.56, h * 0.05)
+		aiming_reticle.position = Vector2(w * 0.46, h * 0.39)
+		aiming_reticle.size = Vector2(w * 0.08, h * 0.06)
+		radar_widget.position = Vector2(w * 0.025, h * 0.69)
+		radar_widget.size = Vector2(minf(h * 0.22, w * 0.12), minf(h * 0.22, w * 0.12))
+		boost_meter.position = Vector2(w - action_button_width - 28.0, h * 0.63)
+		boost_meter.size = Vector2(action_button_width, h * 0.035)
 
 
 func _show_hangar() -> void:
@@ -529,8 +581,14 @@ func _update_flight(delta: float) -> void:
 		_spawn_segment(-next_segment_distance)
 		next_segment_distance += rng.randf_range(48.0, 76.0)
 	for item in course_objects:
-		if is_instance_valid(item) and item.global_position.z > 18.0:
-			item.queue_free()
+		if is_instance_valid(item):
+			if item.is_in_group("pickups"):
+				item.rotation.y += delta * 1.7
+			elif item.is_in_group("hazards"):
+				var spin: Vector3 = item.get_meta("spin", Vector3.ZERO)
+				item.rotation += spin * delta
+			if item.global_position.z > 18.0:
+				item.queue_free()
 	for shot in projectiles:
 		if is_instance_valid(shot):
 			shot.position.z -= 95.0 * delta
@@ -552,7 +610,9 @@ func _update_flight(delta: float) -> void:
 func _spawn_segment(z_position: float) -> void:
 	segment_number += 1
 	var rift_level := int(float(segment_number) / 4.0) + 1
-	_spawn_rift_frame(z_position + 3.0, rift_level)
+	_spawn_asteroid_corridor(z_position)
+	if segment_number % 3 == 1:
+		_spawn_rift_frame(z_position + 3.0, rift_level)
 	var pattern := rng.randi_range(0, 5)
 	match pattern:
 		0:
@@ -591,6 +651,28 @@ func _spawn_rift_frame(z_position: float, level: int) -> void:
 	course_objects.append(frame)
 
 
+func _spawn_asteroid_corridor(z_position: float) -> void:
+	var rock_colors := [Color(0.11, 0.2, 0.31), Color(0.16, 0.26, 0.37), Color(0.22, 0.31, 0.39), Color(0.13, 0.25, 0.4)]
+	for side in [-1.0, 1.0]:
+		var count := rng.randi_range(3, 5)
+		for i in range(count):
+			var rock := Node3D.new()
+			rock.position = Vector3(side * rng.randf_range(12.0, 18.0), rng.randf_range(-7.2, 7.2), z_position - rng.randf_range(0.0, 46.0))
+			rock.rotation = Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.7, 0.7))
+			var base_size := Vector3(rng.randf_range(3.2, 6.0), rng.randf_range(3.0, 5.8), rng.randf_range(3.0, 6.0))
+			var main_tint: Color = rock_colors[rng.randi_range(0, rock_colors.size() - 1)]
+			rock.add_child(_make_block(Vector3.ZERO, base_size, main_tint))
+			for shard_index in range(2):
+				var shard_size := Vector3(rng.randf_range(1.2, 2.8), rng.randf_range(1.4, 3.0), rng.randf_range(1.3, 3.2))
+				var shard_offset := Vector3(rng.randf_range(-2.5, 2.5), rng.randf_range(-2.2, 2.2), rng.randf_range(-2.5, 2.5))
+				var shard_tint := main_tint.lightened(rng.randf_range(0.08, 0.32))
+				var shard := _make_block(shard_offset, shard_size, shard_tint)
+				shard.rotation = Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.8, 0.8))
+				rock.add_child(shard)
+			course_root.add_child(rock)
+			course_objects.append(rock)
+
+
 func _spawn_gate(z_position: float, open_index: int) -> void:
 	var slots := [
 		Vector3(-6.0, 0.0, z_position),
@@ -615,8 +697,32 @@ func _spawn_debris(z_position: float, count: int) -> void:
 		if absf(x) < 2.0 and absf(y) < 1.5:
 			x = 4.2 if x >= 0.0 else -4.2
 		var dims := Vector3(rng.randf_range(1.4, 3.4), rng.randf_range(1.2, 3.2), rng.randf_range(1.8, 4.0))
-		var hue_color: Color = [Color(0.75, 0.27, 0.2), Color(0.31, 0.42, 0.62), Color(0.48, 0.33, 0.72)][rng.randi_range(0, 2)]
-		_spawn_hazard(Vector3(x, y, z_position - rng.randf_range(0.0, 18.0)), dims, hue_color, Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45)))
+		var hue_color: Color = [Color(0.17, 0.28, 0.39), Color(0.28, 0.39, 0.5), Color(0.24, 0.31, 0.45)][rng.randi_range(0, 2)]
+		_spawn_rock_hazard(Vector3(x, y, z_position - rng.randf_range(0.0, 18.0)), dims, hue_color, Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45)))
+
+
+func _spawn_rock_hazard(at: Vector3, dimensions: Vector3, tint: Color, spin: Vector3) -> void:
+	var rock := Area3D.new()
+	rock.position = at
+	rock.collision_layer = 8
+	rock.collision_mask = 1
+	rock.add_to_group("hazards")
+	var shape_node := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = dimensions * 0.82
+	shape_node.shape = shape
+	rock.add_child(shape_node)
+	rock.add_child(_make_block(Vector3.ZERO, dimensions * 0.72, tint))
+	for index in range(3):
+		var shard_size := dimensions * Vector3(rng.randf_range(0.34, 0.62), rng.randf_range(0.34, 0.68), rng.randf_range(0.34, 0.62))
+		var offset := Vector3(rng.randf_range(-dimensions.x * 0.36, dimensions.x * 0.36), rng.randf_range(-dimensions.y * 0.36, dimensions.y * 0.36), rng.randf_range(-dimensions.z * 0.36, dimensions.z * 0.36))
+		var shard := _make_block(offset, shard_size, tint.lightened(rng.randf_range(0.06, 0.26)))
+		shard.rotation = Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45))
+		rock.add_child(shard)
+	rock.body_entered.connect(_on_hazard_body_entered.bind(rock))
+	rock.set_meta("spin", spin)
+	course_root.add_child(rock)
+	course_objects.append(rock)
 
 
 func _spawn_salvage_line(z_position: float) -> void:
@@ -673,9 +779,9 @@ func _spawn_pickup(at: Vector3, kind: String) -> void:
 	sphere.radius = 1.1 if kind == "life" else 0.9
 	shape_node.shape = sphere
 	pickup.add_child(shape_node)
-	var tint := Color(0.36, 1.0, 0.69) if kind == "scrap" else Color(1.0, 0.83, 0.28)
-	var crystal := _make_block(Vector3.ZERO, Vector3.ONE * (1.05 if kind == "life" else 0.72), tint, true)
-	crystal.rotation_degrees = Vector3(25.0, 45.0, 0.0)
+	var tint := Color(1.0, 0.82, 0.22) if kind == "scrap" else Color(0.35, 0.9, 1.0)
+	var crystal := _make_block(Vector3.ZERO, Vector3(0.78, 0.98, 0.78) if kind == "life" else Vector3(0.72, 0.92, 0.72), tint, true)
+	crystal.rotation_degrees = Vector3(0.0, 45.0, 45.0)
 	pickup.add_child(crystal)
 	pickup.body_entered.connect(_on_pickup_body_entered.bind(pickup))
 	course_root.add_child(pickup)
@@ -800,6 +906,30 @@ func _update_hud() -> void:
 	difficulty_label.text = "RIFT  %d" % (int(distance / 180.0) + 1)
 	boost_button.disabled = boost_cooldown > 0.0
 	boost_button.text = "BOOST" if boost_cooldown <= 0.0 else "CHARGING"
+	boost_meter.value = clampf(1.0 - boost_cooldown / 5.2, 0.0, 1.0)
+	_update_radar()
+
+
+func _update_radar() -> void:
+	if not is_instance_valid(radar_widget):
+		return
+	radar_widget.blips.clear()
+	if state == ScreenState.RUN:
+		for item in course_objects:
+			if not is_instance_valid(item):
+				continue
+			var tint := Color(1.0, 0.35, 0.27)
+			if item.is_in_group("pickups"):
+				tint = Color(1.0, 0.84, 0.26)
+			elif not item.is_in_group("hazards") and not item.is_in_group("enemies"):
+				continue
+			var z_distance := item.position.z + course_root.position.z - player.position.z
+			if z_distance < -145.0 or z_distance > 8.0:
+				continue
+			var offset := Vector2((item.position.x - player.position.x) / 22.0, z_distance / 145.0)
+			if offset.length() <= 1.25:
+				radar_widget.blips.append({"offset": offset, "tint": tint})
+	radar_widget.queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
