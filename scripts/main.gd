@@ -17,9 +17,20 @@ class FlightRadar extends Control:
 			draw_circle(center + offset * radius * 0.78, 4.0, blip.tint)
 		draw_colored_polygon(PackedVector2Array([center + Vector2(0, -8), center + Vector2(-5, 6), center + Vector2(0, 3), center + Vector2(5, 6)]), Color(1.0, 0.91, 0.45))
 
-enum ScreenState { HANGAR, BUILDER, RUN, GAME_OVER }
+enum ScreenState { HANGAR, BUILDER, RUN, STAGE_BREAK, GAME_OVER }
 
 const PROFILE_PATH := "user://pilot_profile.cfg"
+const STAGE_DISTANCE := 360.0
+const STAGE_MULTIPLIER_STEP := 0.25
+const BACKGROUND_ANGLES := 5
+const SPACE_BACKGROUNDS := [
+	"res://art/backgrounds/rift_way.jpg",
+	"res://art/backgrounds/ice.jpg",
+	"res://art/backgrounds/emerald.jpg",
+	"res://art/backgrounds/ember.jpg",
+	"res://art/backgrounds/violet.jpg",
+	"res://art/backgrounds/gold.jpg",
+]
 const PARTS := {
 	"splitter_nose": {"title": "SPLITTER NOSE", "cost": 60, "hint": "SHARP FRONT BLOCK", "category": "HULL", "preview": "res://art/library/previews/splitter_nose.png"},
 	"wing_pack": {"title": "AERO WING PAIR", "cost": 55, "hint": "QUICKER HANDLING", "category": "WINGS", "preview": "res://art/library/previews/wing_pack.png"},
@@ -47,6 +58,11 @@ var ui_root: Control
 var menu_panel: CenterContainer
 var shop_panel: Control
 var game_over_panel: CenterContainer
+var stage_break_panel: CenterContainer
+var stage_break_shade: ColorRect
+var stage_break_summary: Label
+var stage_break_view_label: Label
+var backdrop_material: StandardMaterial3D
 var hud: Control
 var title_label: Label
 var subtitle_label: Label
@@ -70,6 +86,7 @@ var builder_cards: Dictionary = {}
 
 var total_scrap := 0
 var run_scrap := 0
+var last_cashout_payout := 0
 var run_score := 0
 var high_score := 0
 var runs_started := 0
@@ -77,6 +94,8 @@ var owned_parts: Array[String] = ["core"]
 var equipped_parts: Array[String] = ["core"]
 var lives := 3
 var distance := 0.0
+var stage_distance := 0.0
+var stage_index := 1
 var run_speed := 27.0
 var segment_number := 0
 var next_segment_distance := 45.0
@@ -99,6 +118,8 @@ var course_objects: Array[Node3D] = []
 var projectiles: Array[Area3D] = []
 var stars: MultiMeshInstance3D
 var starfield_offset := 0.0
+var selected_background_index := -1
+var selected_background_angle := -1
 
 
 func _ready() -> void:
@@ -151,15 +172,31 @@ func _build_space_backdrop() -> void:
 	var quad := QuadMesh.new()
 	quad.size = Vector2(1760.0, 990.0)
 	backdrop.mesh = quad
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.disable_fog = true
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	material.albedo_texture = load("res://art/backgrounds/rift-way-background.png")
-	backdrop.material_override = material
+	backdrop_material = StandardMaterial3D.new()
+	backdrop_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	backdrop_material.disable_fog = true
+	backdrop_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	backdrop_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	backdrop.material_override = backdrop_material
 	backdrop.position = Vector3(0.0, 0.0, -360.0)
 	camera.add_child(backdrop)
+	_choose_background_view()
+
+
+func _choose_background_view() -> void:
+	var choices := SPACE_BACKGROUNDS.size() * BACKGROUND_ANGLES
+	var choice := rng.randi_range(0, choices - 1)
+	if choice == selected_background_index * BACKGROUND_ANGLES + selected_background_angle:
+		choice = (choice + rng.randi_range(1, choices - 1)) % choices
+	selected_background_index = int(choice / BACKGROUND_ANGLES)
+	selected_background_angle = choice % BACKGROUND_ANGLES
+	backdrop_material.albedo_texture = load(SPACE_BACKGROUNDS[selected_background_index])
+	var x_scale := 0.78
+	var y_scale := 0.86
+	var x_offset := float(selected_background_angle) * (1.0 - x_scale) / float(BACKGROUND_ANGLES - 1)
+	var y_offset := float((selected_background_index + selected_background_angle) % 3) * (1.0 - y_scale) / 2.0
+	backdrop_material.uv1_scale = Vector3(x_scale, y_scale, 1.0)
+	backdrop_material.uv1_offset = Vector3(x_offset, y_offset, 0.0)
 
 
 func _load_asteroid_models() -> void:
@@ -447,6 +484,52 @@ func _build_ui() -> void:
 	return_button.pressed.connect(_show_hangar)
 	result_column.add_child(return_button)
 
+	stage_break_panel = CenterContainer.new()
+	stage_break_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stage_break_shade = ColorRect.new()
+	stage_break_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stage_break_shade.color = Color(0.004, 0.01, 0.025, 0.83)
+	stage_break_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.add_child(stage_break_shade)
+	ui_root.add_child(stage_break_panel)
+	var stage_card := PanelContainer.new()
+	stage_card.custom_minimum_size = Vector2(620.0, 420.0)
+	var stage_style := StyleBoxFlat.new()
+	stage_style.bg_color = Color(0.012, 0.04, 0.09, 0.98)
+	stage_style.border_color = Color(0.16, 0.7, 0.94, 0.96)
+	stage_style.set_border_width_all(3)
+	stage_style.set_corner_radius_all(18)
+	stage_style.content_margin_left = 30
+	stage_style.content_margin_right = 30
+	stage_style.content_margin_top = 24
+	stage_style.content_margin_bottom = 24
+	stage_card.add_theme_stylebox_override("panel", stage_style)
+	stage_break_panel.add_child(stage_card)
+	var stage_column := VBoxContainer.new()
+	stage_column.alignment = BoxContainer.ALIGNMENT_CENTER
+	stage_column.add_theme_constant_override("separation", 16)
+	stage_card.add_child(stage_column)
+	var stage_title := _label("RIFT STAGE CLEARED", 38, Color(0.52, 0.89, 1.0))
+	stage_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stage_column.add_child(stage_title)
+	stage_break_summary = _label("", 22, Color(0.88, 0.94, 1.0))
+	stage_break_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stage_column.add_child(stage_break_summary)
+	stage_break_view_label = _label("VIEW 01 / 30", 17, Color(0.58, 0.78, 0.95))
+	stage_break_view_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stage_column.add_child(stage_break_view_label)
+	var risk_note := _label("KEEP GOING TO RAISE THE MULTIPLIER. YOUR UNBANKED HAUL IS AT RISK.", 15, Color(1.0, 0.7, 0.34))
+	risk_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stage_column.add_child(risk_note)
+	var cashout_button := _button("CASH OUT & RETURN TO HANGAR", 18)
+	cashout_button.custom_minimum_size = Vector2(520.0, 64.0)
+	cashout_button.pressed.connect(_cash_out_run)
+	stage_column.add_child(cashout_button)
+	var continue_button := _button("CONTINUE • NEXT MULTIPLIER", 18)
+	continue_button.custom_minimum_size = Vector2(520.0, 64.0)
+	continue_button.pressed.connect(_continue_run)
+	stage_column.add_child(continue_button)
+
 	hud = Control.new()
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -573,6 +656,8 @@ func _show_hangar() -> void:
 	menu_panel.visible = true
 	shop_panel.visible = false
 	game_over_panel.visible = false
+	stage_break_panel.visible = false
+	stage_break_shade.visible = false
 	hud.visible = false
 	firing = false
 	if is_instance_valid(player):
@@ -582,7 +667,7 @@ func _show_hangar() -> void:
 		camera.position = Vector3(0.0, 3.7, 10.5)
 		camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
 		camera.fov = 78.0
-	subtitle_label.text = "BANKED SCRAP %d   •   BEST FLIGHT %d" % [total_scrap, high_score]
+	subtitle_label.text = "BANKED %d   •   LAST CASHOUT +%d   •   BEST FLIGHT %d" % [total_scrap, last_cashout_payout, high_score]
 
 
 func _show_builder() -> void:
@@ -659,6 +744,8 @@ func _start_run() -> void:
 	secret_life_claimed = false
 	lives = 3
 	distance = 0.0
+	stage_distance = 0.0
+	stage_index = 1
 	run_speed = 27.0
 	segment_number = 0
 	next_segment_distance = 45.0
@@ -673,6 +760,7 @@ func _start_run() -> void:
 	boost_cooldown = 0.0
 	boost_duration = 1.8 if equipped_parts.has("boost_core") else 1.15
 	boost_speed = 0.0
+	_choose_background_view()
 	for item in course_objects:
 		if is_instance_valid(item):
 			item.queue_free()
@@ -694,12 +782,76 @@ func _start_run() -> void:
 	menu_panel.visible = false
 	shop_panel.visible = false
 	game_over_panel.visible = false
+	stage_break_panel.visible = false
+	stage_break_shade.visible = false
 	hud.visible = true
+	_update_hud()
+
+
+func _finish_stage() -> void:
+	state = ScreenState.STAGE_BREAK
+	firing = false
+	hud.visible = false
+	menu_panel.visible = false
+	shop_panel.visible = false
+	game_over_panel.visible = false
+	stage_break_panel.visible = true
+	stage_break_shade.visible = true
+	var multiplier := 1.0 + float(stage_index - 1) * STAGE_MULTIPLIER_STEP
+	var next_multiplier := multiplier + STAGE_MULTIPLIER_STEP
+	var payout := int(round(float(run_scrap) * multiplier))
+	stage_break_summary.text = "STAGE %d COMPLETE\nUNBANKED HAUL  %d SCRAP\nCASH OUT NOW  %d SCRAP  •  x%.2f\nCONTINUE TO RAISE IT TO  x%.2f" % [stage_index, run_scrap, payout, multiplier, next_multiplier]
+	var view_number := selected_background_index * BACKGROUND_ANGLES + selected_background_angle + 1
+	stage_break_view_label.text = "SPACE VIEW  %02d / 30" % view_number
+
+
+func _cash_out_run() -> void:
+	if state != ScreenState.STAGE_BREAK:
+		return
+	var multiplier := 1.0 + float(stage_index - 1) * STAGE_MULTIPLIER_STEP
+	last_cashout_payout = int(round(float(run_scrap) * multiplier))
+	total_scrap += last_cashout_payout
+	high_score = maxi(high_score, run_score)
+	run_scrap = 0
+	_save_profile()
+	_show_hangar()
+
+
+func _continue_run() -> void:
+	if state != ScreenState.STAGE_BREAK:
+		return
+	stage_index += 1
+	run_speed = minf(run_speed + 1.2, 43.0)
+	stage_distance = 0.0
+	next_segment_distance = 45.0
+	steering_target = Vector2.ZERO
+	player.position = Vector3.ZERO
+	player.rotation = Vector3.ZERO
+	player.visible = true
+	for item in course_objects:
+		if is_instance_valid(item):
+			item.queue_free()
+	course_objects.clear()
+	for shot in projectiles:
+		if is_instance_valid(shot):
+			shot.queue_free()
+	projectiles.clear()
+	course_root.position = Vector3.ZERO
+	_choose_background_view()
+	while next_segment_distance < 190.0:
+		_spawn_segment(-next_segment_distance)
+		next_segment_distance += rng.randf_range(48.0, 74.0)
+	stage_break_panel.visible = false
+	stage_break_shade.visible = false
+	hud.visible = true
+	state = ScreenState.RUN
 	_update_hud()
 
 
 func _process(delta: float) -> void:
 	if state != ScreenState.RUN:
+		if state == ScreenState.STAGE_BREAK:
+			return
 		if is_instance_valid(player):
 			if state == ScreenState.BUILDER:
 				player.rotation.y += delta * 0.24
@@ -731,6 +883,7 @@ func _update_flight(delta: float) -> void:
 	camera.fov = lerpf(camera.fov, 86.0 if boost_time > 0.0 else 78.0, delta * 4.0)
 	camera_shake = move_toward(camera_shake, 0.0, delta * 12.0)
 	distance += current_speed * delta
+	stage_distance += current_speed * delta
 	run_score += int(current_speed * delta * 4.0)
 	course_root.position.z += current_speed * delta
 	starfield_offset = fmod(starfield_offset + current_speed * delta * 0.12, 210.0)
@@ -749,8 +902,11 @@ func _update_flight(delta: float) -> void:
 		camera_target += Vector3(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake), 0.0)
 	camera.position = camera.position.lerp(camera_target, minf(delta * 6.0, 1.0))
 	camera.look_at(player.position + Vector3(0.0, 0.0, -16.0), Vector3.UP)
+	if stage_distance >= STAGE_DISTANCE:
+		_finish_stage()
+		return
 
-	while next_segment_distance < distance + 190.0:
+	while next_segment_distance < stage_distance + 190.0:
 		_spawn_segment(-next_segment_distance)
 		next_segment_distance += rng.randf_range(48.0, 76.0)
 	for item in course_objects:
@@ -774,15 +930,12 @@ func _update_flight(delta: float) -> void:
 	if auto_fire and fire_cooldown <= 0.0:
 		_fire_weapon()
 		fire_cooldown = 0.16 if equipped_parts.has("twin_cannon") else 0.3
-	var new_rift := int(distance / 180.0) + 1
-	if new_rift > int((distance - current_speed * delta) / 180.0) + 1:
-		run_speed = minf(run_speed + 1.6, 43.0)
 	_update_hud()
 
 
 func _spawn_segment(z_position: float) -> void:
 	segment_number += 1
-	var rift_level := int(float(segment_number) / 4.0) + 1
+	var rift_level := maxi(int(float(segment_number) / 4.0) + 1, stage_index)
 	_spawn_asteroid_corridor(z_position)
 	if segment_number % 3 == 1:
 		_spawn_rift_frame(z_position + 3.0, rift_level)
@@ -997,8 +1150,6 @@ func _on_shot_hit(area: Area3D, shot: Area3D) -> void:
 		return
 	run_score += 150
 	run_scrap += 12
-	total_scrap += 12
-	_save_profile()
 	area.queue_free()
 	shot.queue_free()
 
@@ -1032,9 +1183,7 @@ func _on_pickup_body_entered(body: Node3D, pickup: Area3D) -> void:
 		secret_life_claimed = true
 	else:
 		run_scrap += 10
-		total_scrap += 10
 		run_score += 50
-		_save_profile()
 	pickup.queue_free()
 	_update_hud()
 
@@ -1055,12 +1204,14 @@ func _end_run() -> void:
 	menu_panel.visible = false
 	shop_panel.visible = false
 	game_over_panel.visible = true
+	stage_break_panel.visible = false
+	stage_break_shade.visible = false
 	player.visible = true
 	high_score = maxi(high_score, run_score)
 	equipped_parts = ["core"]
 	_save_profile()
 	var summary: Label = game_over_panel.get_meta("summary")
-	summary.text = "SCORE  %d\nSALVAGE BANKED  +%d\nBEST FLIGHT  %d\nTOTAL SCRAP  %d" % [run_score, run_scrap, high_score, total_scrap]
+	summary.text = "SCORE  %d\nUNBANKED SALVAGE LOST  %d\nBEST FLIGHT  %d\nBANKED SCRAP  %d" % [run_score, run_scrap, high_score, total_scrap]
 	_rebuild_ship_mesh()
 
 
@@ -1070,7 +1221,8 @@ func _update_hud() -> void:
 	lives_label.text = "LIVES  %d" % lives
 	score_label.text = "SCORE  %07d" % run_score
 	scrap_label.text = "SCRAP  %d  (+%d)" % [total_scrap, run_scrap]
-	difficulty_label.text = "RIFT  %d" % (int(distance / 180.0) + 1)
+	var multiplier := 1.0 + float(stage_index - 1) * STAGE_MULTIPLIER_STEP
+	difficulty_label.text = "STAGE %d  •  x%.2f" % [stage_index, multiplier]
 	boost_button.disabled = boost_cooldown > 0.0
 	boost_button.text = "BOOST" if boost_cooldown <= 0.0 else "CHARGING"
 	boost_meter.value = clampf(1.0 - boost_cooldown / 5.2, 0.0, 1.0)

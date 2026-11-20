@@ -6,13 +6,16 @@ A standalone, low-poly space-flight arcade game built with Godot. Courses are as
 
 - Landscape flight view with responsive expanded layout for wider Android screens.
 - Expanded free-flight steering range so you can sweep across the open course instead of staying near the center.
-- Endless runs assembled from block gates, debris fields, salvage paths, and drone encounters.
+- Runs are divided into short flight stages assembled from block gates, debris fields, salvage paths, and drone encounters.
 - Drag to steer; hold **FIRE** to shoot; tap **BOOST** to surge. Desktop testing also supports mouse drag, Space, and Shift.
 - Three lives per run. A rare life cache has a random 20% chance to appear in each run.
-- Scrap and unlocked ship blocks persist between runs. Four modular parts can be bought and equipped in the hangar; the active build resets after a run ends.
+- Each stage ends at a decision pause: bank the unbanked salvage and return to the hangar, or continue with the haul at risk for a higher multiplier. Continuing raises the multiplier by 0.25 and slightly increases speed and obstacle difficulty.
+- Only cashed-out salvage becomes banked scrap. Losing all lives forfeits the unbanked haul; unlocked ship blocks and previously banked scrap persist.
+- Six compressed scenic backgrounds each have five camera crops, giving 30 reusable space views without 30 full-size textures. A new view is selected for every run and continued stage.
+- Four modular parts can be bought and equipped in the hangar; the active build resets when all lives are lost.
 - Separate ship-builder window with category tabs, photo-style previews, scrap costs, and a rotatable live ship preview.
 - Blender-authored low-poly ship modules and three asteroid models used in the generated flight corridors, with the editable source scene and generation script included.
-- A high-resolution deep-space photo backdrop frames the flight path; detailed, smooth-shaded asteroid hazards contrast with the intentionally blocky low-poly ship.
+- High-resolution deep-space photo backdrops frame each flight stage; detailed, smooth-shaded asteroid hazards contrast with the intentionally blocky low-poly ship.
 
 This is an early playable build. Flight feel, collision spacing, and touch sizing are ready for device feedback and tuning.
 
