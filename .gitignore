@@ -1,0 +1,24 @@
+# Godot editor/import cache
+.godot/
+*.translation
+
+# Build outputs
+/build/
+/dist/
+
+# Blender backups and temporary renders
+*.blend1
+*.blend2
+*.tmp
+*.bak
+__pycache__/
+*.py[cod]
+
+# Generated from the public development-only key material when exporting
+/android/debug.keystore
+
+# Local SDK/tool installs and editor settings
+/toolchain/local/
+/.vscode/
+/.idea/
+

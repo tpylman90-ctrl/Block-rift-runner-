@@ -1,0 +1,60 @@
+name: Android review APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android-debug-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android export packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "cmake;3.10.2.4988404" \
+            "ndk;28.1.13356709"
+      - name: Install Godot 4.5.1 and export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          BASE="https://github.com/godotengine/godot/releases/download/4.5.1-stable"
+          curl -fsSL "$BASE/Godot_v4.5.1-stable_linux.x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl -fsSL "$BASE/Godot_v4.5.1-stable_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot/Godot_v4.5.1-stable_linux.x86_64"
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.5.1.stable"
+          mkdir -p "$TEMPLATE_DIR" "$RUNNER_TEMP/templates"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
+          cp -R "$RUNNER_TEMP/templates/templates/." "$TEMPLATE_DIR/"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Import and export signed test APK
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/android/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          base64 --decode android/debug.keystore.base64 > android/debug.keystore
+          godot --headless --editor --path . --import --quit
+          mkdir -p build
+          godot --headless --path . --export-debug Android build/BlockRiftRunner.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlockRiftRunner-Android-debug
+          path: build/BlockRiftRunner.apk
+          if-no-files-found: error
+          retention-days: 14
+
