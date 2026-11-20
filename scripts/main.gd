@@ -17,15 +17,26 @@ class FlightRadar extends Control:
 			draw_circle(center + offset * radius * 0.78, 4.0, blip.tint)
 		draw_colored_polygon(PackedVector2Array([center + Vector2(0, -8), center + Vector2(-5, 6), center + Vector2(0, 3), center + Vector2(5, 6)]), Color(1.0, 0.91, 0.45))
 
-enum ScreenState { HANGAR, SHOP, RUN, GAME_OVER }
+enum ScreenState { HANGAR, BUILDER, RUN, GAME_OVER }
 
 const PROFILE_PATH := "user://pilot_profile.cfg"
 const PARTS := {
-	"wing_pack": {"title": "WING BLOCKS", "cost": 55, "hint": "HANDLING"},
-	"twin_cannon": {"title": "TWIN CANNONS", "cost": 85, "hint": "FASTER FIRE"},
-	"armor": {"title": "ARMOR PLATE", "cost": 100, "hint": "ONE HIT BUFFER"},
-	"boost_core": {"title": "BOOST CORE", "cost": 125, "hint": "LONGER BOOST"},
+	"splitter_nose": {"title": "SPLITTER NOSE", "cost": 60, "hint": "SHARP FRONT BLOCK", "category": "HULL", "preview": "res://art/library/previews/splitter_nose.png"},
+	"wing_pack": {"title": "AERO WING PAIR", "cost": 55, "hint": "QUICKER HANDLING", "category": "WINGS", "preview": "res://art/library/previews/wing_pack.png"},
+	"fin_set": {"title": "TAIL FIN SET", "cost": 45, "hint": "TWIN STABILITY FINS", "category": "WINGS", "preview": "res://art/library/previews/fin_set.png"},
+	"boost_core": {"title": "PULSE ENGINE", "cost": 125, "hint": "LONGER BOOST", "category": "ENGINES", "preview": "res://art/library/previews/boost_core.png"},
+	"side_pods": {"title": "SIDE THRUSTER PODS", "cost": 80, "hint": "SIDE ENGINE PAIR", "category": "ENGINES", "preview": "res://art/library/previews/side_pods.png"},
+	"twin_cannon": {"title": "TWIN CANNONS", "cost": 85, "hint": "FASTER FIRE", "category": "WEAPONS", "preview": "res://art/library/previews/twin_cannon.png"},
+	"armor": {"title": "ARMOR PLATE", "cost": 100, "hint": "ONE HIT BUFFER", "category": "ARMOR", "preview": "res://art/library/previews/armor.png"},
 }
+
+const PART_CATEGORIES := ["ALL", "HULL", "WINGS", "ENGINES", "WEAPONS", "ARMOR"]
+const ASTEROID_VARIANTS := [
+	"res://art/library/models/asteroid_1.glb",
+	"res://art/library/models/asteroid_2.glb",
+	"res://art/library/models/asteroid_3.glb",
+]
+var asteroid_scenes: Array[PackedScene] = []
 
 var state: ScreenState = ScreenState.HANGAR
 var rng := RandomNumberGenerator.new()
@@ -34,7 +45,7 @@ var camera: Camera3D
 var course_root: Node3D
 var ui_root: Control
 var menu_panel: CenterContainer
-var shop_panel: CenterContainer
+var shop_panel: Control
 var game_over_panel: CenterContainer
 var hud: Control
 var title_label: Label
@@ -51,6 +62,11 @@ var boost_button: Button
 var boost_meter: ProgressBar
 var shop_status: Label
 var shop_buttons: Dictionary = {}
+var builder_tabs: HBoxContainer
+var builder_grid: GridContainer
+var active_category := "ALL"
+var builder_preview_label: Label
+var builder_cards: Dictionary = {}
 
 var total_scrap := 0
 var run_scrap := 0
@@ -88,6 +104,7 @@ var starfield_offset := 0.0
 func _ready() -> void:
 	rng.randomize()
 	_load_profile()
+	_load_asteroid_models()
 	_build_world()
 	_build_ship()
 	_build_ui()
@@ -127,6 +144,19 @@ func _build_world() -> void:
 	_build_starfield()
 
 
+func _load_asteroid_models() -> void:
+	for model_path in ASTEROID_VARIANTS:
+		var gltf := GLTFDocument.new()
+		var gltf_state := GLTFState.new()
+		var load_error := gltf.append_from_file(model_path, gltf_state)
+		if load_error != OK:
+			push_warning("Could not load asteroid model: %s" % model_path)
+			continue
+		var model_scene := gltf.generate_scene(gltf_state)
+		if model_scene:
+			asteroid_scenes.append(PackedScene.new())
+			asteroid_scenes.back().pack(model_scene)
+			model_scene.free()
 func _build_starfield() -> void:
 	var cube := BoxMesh.new()
 	cube.size = Vector3(0.11, 0.11, 0.11)
@@ -193,6 +223,18 @@ func _rebuild_ship_mesh() -> void:
 	if equipped_parts.has("wing_pack"):
 		for side in [-1.0, 1.0]:
 			player.add_child(_make_block(Vector3(side * 1.45, -0.04, 0.2), Vector3(1.35, 0.25, 1.25), Color(0.93, 0.39, 0.24)))
+	if equipped_parts.has("fin_set"):
+		for side in [-1.0, 1.0]:
+			player.add_child(_make_block(Vector3(side * 0.7, 0.48, 1.05), Vector3(0.28, 0.9, 1.05), Color(0.96, 0.53, 0.24)))
+	if equipped_parts.has("splitter_nose"):
+		for side in [-1.0, 1.0]:
+			player.add_child(_make_block(Vector3(side * 0.62, -0.08, -1.7), Vector3(0.42, 0.18, 1.15), Color(0.95, 0.94, 0.81)))
+	if equipped_parts.has("side_pods"):
+		for side in [-1.0, 1.0]:
+			player.add_child(_make_block(Vector3(side * 1.48, -0.05, 0.82), Vector3(0.65, 0.68, 1.6), Color(0.18, 0.31, 0.48)))
+			var pod_flame := _make_block(Vector3(side * 1.48, -0.05, 1.72), Vector3(0.34, 0.35, 0.72), Color(0.25, 0.78, 1.0), true)
+			player.add_child(pod_flame)
+			engine_flames.append(pod_flame)
 	if equipped_parts.has("twin_cannon"):
 		for side in [-1.0, 1.0]:
 			player.add_child(_make_block(Vector3(side * 0.56, -0.02, -1.8), Vector3(0.22, 0.24, 0.72), Color(1.0, 0.63, 0.25)))
@@ -251,37 +293,120 @@ func _build_ui() -> void:
 	launch.pressed.connect(_start_run)
 	menu_column.add_child(launch)
 	var parts := _button("HANGAR / PARTS", 24)
-	parts.pressed.connect(_show_shop)
+	parts.text = "SHIP BUILDER"
+	parts.pressed.connect(_show_builder)
 	menu_column.add_child(parts)
 	var help := _label("DRAG TO FLY  •  FIRE TO CLEAR DRONES  •  BOOST TO SURGE", 17, Color(0.57, 0.66, 0.82))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_column.add_child(help)
 
-	shop_panel = CenterContainer.new()
+	shop_panel = Control.new()
 	shop_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui_root.add_child(shop_panel)
+	var builder_shade := ColorRect.new()
+	builder_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	builder_shade.color = Color(0.008, 0.018, 0.045, 0.42)
+	builder_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shop_panel.add_child(builder_shade)
+	var builder_window := PanelContainer.new()
+	builder_window.anchor_right = 0.65
+	builder_window.anchor_bottom = 1.0
+	builder_window.offset_left = 28.0
+	builder_window.offset_top = 28.0
+	builder_window.offset_right = -18.0
+	builder_window.offset_bottom = -28.0
+	var window_style := StyleBoxFlat.new()
+	window_style.bg_color = Color(0.012, 0.04, 0.09, 0.95)
+	window_style.border_color = Color(0.12, 0.58, 0.82, 0.9)
+	window_style.set_border_width_all(2)
+	window_style.set_corner_radius_all(14)
+	window_style.content_margin_left = 18
+	window_style.content_margin_right = 18
+	window_style.content_margin_top = 14
+	window_style.content_margin_bottom = 14
+	builder_window.add_theme_stylebox_override("panel", window_style)
+	shop_panel.add_child(builder_window)
 	var shop_column := VBoxContainer.new()
-	shop_column.custom_minimum_size = Vector2(620.0, 650.0)
-	shop_column.add_theme_constant_override("separation", 12)
-	shop_column.alignment = BoxContainer.ALIGNMENT_CENTER
-	shop_panel.add_child(shop_column)
-	var shop_title := _label("SCRAP HANGAR", 42, Color(0.53, 0.88, 1.0))
-	shop_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_column.add_child(shop_title)
+	shop_column.add_theme_constant_override("separation", 10)
+	builder_window.add_child(shop_column)
+	var builder_header := HBoxContainer.new()
+	shop_column.add_child(builder_header)
+	var shop_title := _label("SHIP BUILDER  /  BLOCK LIBRARY", 31, Color(0.53, 0.88, 1.0))
+	shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	builder_header.add_child(shop_title)
 	shop_status = _label("", 20, Color(1.0, 0.77, 0.35))
-	shop_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_column.add_child(shop_status)
+	shop_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	builder_header.add_child(shop_status)
+	builder_tabs = HBoxContainer.new()
+	builder_tabs.add_theme_constant_override("separation", 6)
+	shop_column.add_child(builder_tabs)
+	for category in PART_CATEGORIES:
+		var tab := _button(category, 15)
+		tab.custom_minimum_size = Vector2(0.0, 48.0)
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.pressed.connect(_set_builder_category.bind(category))
+		builder_tabs.add_child(tab)
+	var library_scroll := ScrollContainer.new()
+	library_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	library_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	shop_column.add_child(library_scroll)
+	builder_grid = GridContainer.new()
+	builder_grid.columns = 2
+	builder_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	builder_grid.add_theme_constant_override("h_separation", 12)
+	builder_grid.add_theme_constant_override("v_separation", 10)
+	library_scroll.add_child(builder_grid)
 	for part_id in PARTS.keys():
-		var part_button := _button("", 17)
+		var item: Dictionary = PARTS[part_id]
+		var card := PanelContainer.new()
+		card.custom_minimum_size = Vector2(280.0, 220.0)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color(0.025, 0.08, 0.14, 0.97)
+		card_style.border_color = Color(0.12, 0.3, 0.44, 0.9)
+		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(10)
+		card_style.content_margin_left = 10
+		card_style.content_margin_right = 10
+		card_style.content_margin_top = 8
+		card_style.content_margin_bottom = 8
+		card.add_theme_stylebox_override("panel", card_style)
+		var card_column := VBoxContainer.new()
+		card_column.add_theme_constant_override("separation", 4)
+		card.add_child(card_column)
+		var thumbnail := TextureRect.new()
+		thumbnail.custom_minimum_size = Vector2(260.0, 118.0)
+		thumbnail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		var preview_path := str(item.preview)
+		if ResourceLoader.exists(preview_path):
+			thumbnail.texture = load(preview_path)
+		card_column.add_child(thumbnail)
+		var part_title := _label(str(item.title), 18, Color(0.88, 0.95, 1.0))
+		card_column.add_child(part_title)
+		var part_hint := _label("%s  •  %d SCRAP" % [str(item.hint), int(item.cost)], 14, Color(0.55, 0.76, 0.93))
+		card_column.add_child(part_hint)
+		var part_button := _button("", 15)
+		part_button.custom_minimum_size = Vector2(0.0, 42.0)
 		part_button.pressed.connect(_on_shop_part_pressed.bind(part_id))
-		shop_column.add_child(part_button)
+		card_column.add_child(part_button)
+		builder_grid.add_child(card)
 		shop_buttons[part_id] = part_button
-	var shop_note := _label("UNLOCKS STAY YOURS. EQUIPPED BLOCKS ARE LOST WHEN A RUN ENDS.", 16, Color(0.62, 0.69, 0.83))
-	shop_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_column.add_child(shop_note)
-	var back := _button("BACK TO FLIGHT DECK", 22)
+		builder_cards[part_id] = card
+	var builder_footer := HBoxContainer.new()
+	shop_column.add_child(builder_footer)
+	var shop_note := _label("UNLOCKS PERSIST  •  BUILD UP TO 4 BLOCKS  •  RUN BUILDS RESET AFTER GAME OVER", 14, Color(0.62, 0.69, 0.83))
+	shop_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	builder_footer.add_child(shop_note)
+	var back := _button("FLIGHT DECK", 17)
+	back.custom_minimum_size = Vector2(180.0, 46.0)
 	back.pressed.connect(_show_hangar)
-	shop_column.add_child(back)
+	builder_footer.add_child(back)
+	builder_preview_label = _label("3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 4 BLOCKS" % equipped_parts.size(), 21, Color(0.78, 0.9, 1.0))
+	builder_preview_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	builder_preview_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	shop_panel.add_child(builder_preview_label)
 
 	game_over_panel = CenterContainer.new()
 	game_over_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -417,6 +542,8 @@ func _layout_ui() -> void:
 		radar_widget.size = Vector2(minf(h * 0.22, w * 0.12), minf(h * 0.22, w * 0.12))
 		boost_meter.position = Vector2(w - action_button_width - 28.0, h * 0.63)
 		boost_meter.size = Vector2(action_button_width, h * 0.035)
+		builder_preview_label.position = Vector2(w * 0.665, h * 0.045)
+		builder_preview_label.size = Vector2(w * 0.32, h * 0.12)
 
 
 func _show_hangar() -> void:
@@ -432,16 +559,27 @@ func _show_hangar() -> void:
 		player.rotation = Vector3.ZERO
 		camera.position = Vector3(0.0, 3.7, 10.5)
 		camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
+		camera.fov = 78.0
 	subtitle_label.text = "BANKED SCRAP %d   •   BEST FLIGHT %d" % [total_scrap, high_score]
 
 
-func _show_shop() -> void:
-	state = ScreenState.SHOP
+func _show_builder() -> void:
+	state = ScreenState.BUILDER
 	menu_panel.visible = false
 	shop_panel.visible = true
 	game_over_panel.visible = false
 	hud.visible = false
-	shop_status.text = "BANKED SCRAP: %d  |  BLOCKS: %d/4" % [total_scrap, equipped_parts.size()]
+	player.visible = true
+	player.rotation = Vector3.ZERO
+	camera.fov = 62.0
+	camera.position = player.position + Vector3(1.2, 3.4, 10.0)
+	camera.look_at(player.position + Vector3(-4.3, 0.0, 0.0), Vector3.UP)
+	active_category = "ALL"
+	_update_shop_buttons()
+
+
+func _set_builder_category(category: String) -> void:
+	active_category = category
 	_update_shop_buttons()
 
 
@@ -452,13 +590,16 @@ func _update_shop_buttons() -> void:
 		var equipped := equipped_parts.has(part_id)
 		var button: Button = shop_buttons[part_id]
 		if not owned:
-			button.text = "%s  •  %d SCRAP  •  %s" % [item.title, item.cost, item.hint]
+			button.text = "BUILD  •  %d SCRAP" % int(item.cost)
 		elif equipped:
-			button.text = "✓  %s  •  EQUIPPED" % item.title
+			button.text = "INSTALLED  •  TAP TO REMOVE"
 		else:
-			button.text = "+  %s  •  EQUIP  •  %s" % [item.title, item.hint]
+			button.text = "ADD TO SHIP"
 		button.disabled = owned and not equipped and equipped_parts.size() >= 4
-	shop_status.text = "BANKED SCRAP: %d  |  BLOCKS: %d/4" % [total_scrap, equipped_parts.size()]
+		var card: Control = builder_cards[part_id]
+		card.visible = active_category == "ALL" or str(item.category) == active_category
+	shop_status.text = "SCRAP %d  •  INSTALLED %d / 4" % [total_scrap, equipped_parts.size()]
+	builder_preview_label.text = "3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 4 BLOCKS" % equipped_parts.size()
 
 
 func _on_shop_part_pressed(part_id: String) -> void:
@@ -469,7 +610,11 @@ func _on_shop_part_pressed(part_id: String) -> void:
 			return
 		total_scrap -= int(item.cost)
 		owned_parts.append(part_id)
-		equipped_parts.append(part_id)
+		if equipped_parts.size() < 4:
+			equipped_parts.append(part_id)
+			shop_status.text = "%s BUILT AND INSTALLED" % item.title
+		else:
+			shop_status.text = "%s ADDED TO LIBRARY  •  REMOVE A BLOCK TO INSTALL" % item.title
 		_save_profile()
 	else:
 		if equipped_parts.has(part_id):
@@ -517,6 +662,7 @@ func _start_run() -> void:
 	course_root.position = Vector3.ZERO
 	player.position = Vector3.ZERO
 	player.rotation = Vector3.ZERO
+	camera.fov = 78.0
 	player.visible = true
 	_rebuild_ship_mesh()
 	while next_segment_distance < 190.0:
@@ -533,8 +679,13 @@ func _start_run() -> void:
 func _process(delta: float) -> void:
 	if state != ScreenState.RUN:
 		if is_instance_valid(player):
-			camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
-			camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
+			if state == ScreenState.BUILDER:
+				player.rotation.y += delta * 0.24
+				camera.position = camera.position.lerp(player.position + Vector3(1.2, 3.4, 10.0), minf(delta * 3.0, 1.0))
+				camera.look_at(player.position + Vector3(-4.3, 0.0, 0.0), Vector3.UP)
+			else:
+				camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
+				camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
 		return
 	_update_flight(delta)
 
@@ -563,12 +714,12 @@ func _update_flight(delta: float) -> void:
 	starfield_offset = fmod(starfield_offset + current_speed * delta * 0.12, 210.0)
 	stars.position.z = starfield_offset - 100.0
 	var target := Vector3(steering_target.x, steering_target.y, 0.0)
-	var response := 17.0 if equipped_parts.has("wing_pack") else 13.5
+	var response := 17.0 if equipped_parts.has("wing_pack") or equipped_parts.has("fin_set") else 13.5
 	var follow := 1.0 - exp(-response * delta)
 	player.position.x = lerpf(player.position.x, target.x, follow)
 	player.position.y = lerpf(player.position.y, target.y, follow)
-	player.position.x = clampf(player.position.x, -9.2, 9.2)
-	player.position.y = clampf(player.position.y, -5.2, 5.2)
+	player.position.x = clampf(player.position.x, -14.5, 14.5)
+	player.position.y = clampf(player.position.y, -8.5, 8.5)
 	player.rotation.z = lerpf(player.rotation.z, clampf((target.x - player.position.x) * -0.12, -0.72, 0.72), delta * 7.0)
 	player.rotation.x = lerpf(player.rotation.x, clampf((target.y - player.position.y) * 0.1, -0.36, 0.36), delta * 7.0)
 	var camera_target := player.position + Vector3(0.0, 3.9, 11.5)
@@ -616,7 +767,7 @@ func _spawn_segment(z_position: float) -> void:
 	var pattern := rng.randi_range(0, 5)
 	match pattern:
 		0:
-			_spawn_gate(z_position, rng.randi_range(0, 3))
+			_spawn_gate(z_position, rng.randi_range(0, 4))
 		1:
 			_spawn_debris(z_position, 3 + mini(rift_level, 3))
 		2:
@@ -628,11 +779,11 @@ func _spawn_segment(z_position: float) -> void:
 		_:
 			_spawn_debris(z_position, 2)
 			if rng.randf() < 0.7:
-				_spawn_pickup(Vector3(rng.randf_range(-7.0, 7.0), rng.randf_range(-3.8, 3.8), z_position - 12.0), "scrap")
+				_spawn_pickup(Vector3(rng.randf_range(-11.0, 11.0), rng.randf_range(-6.5, 6.5), z_position - 12.0), "scrap")
 	if segment_number == secret_life_segment and not secret_life_claimed:
 		var side := -1.0 if rng.randf() < 0.5 else 1.0
 		_spawn_gate(z_position - 2.0, 1 if side < 0.0 else 2)
-		_spawn_pickup(Vector3(side * rng.randf_range(7.0, 8.7), rng.randf_range(-4.2, 4.2), z_position - 2.0), "life")
+		_spawn_pickup(Vector3(side * rng.randf_range(10.0, 13.0), rng.randf_range(-6.5, 6.5), z_position - 2.0), "life")
 		secret_life_claimed = true
 
 
@@ -644,56 +795,50 @@ func _spawn_rift_frame(z_position: float, level: int) -> void:
 	frame.set_meta("spin", Vector3(0.0, 0.0, 0.0))
 	var glow_tint := tint.lightened(0.18)
 	for side in [-1.0, 1.0]:
-		frame.add_child(_make_block(Vector3(side * 12.2, 0.0, 0.0), Vector3(0.42, 15.2, 0.5), tint, true))
-		frame.add_child(_make_block(Vector3(0.0, side * 7.45, 0.0), Vector3(24.8, 0.38, 0.5), glow_tint, true))
-		frame.add_child(_make_block(Vector3(side * 11.65, side * 6.95, 0.0), Vector3(1.5, 0.28, 0.5), Color(0.95, 0.95, 1.0), true))
+		frame.add_child(_make_block(Vector3(side * 18.8, 0.0, 0.0), Vector3(0.42, 20.5, 0.5), tint, true))
+		frame.add_child(_make_block(Vector3(0.0, side * 10.0, 0.0), Vector3(38.0, 0.38, 0.5), glow_tint, true))
+		frame.add_child(_make_block(Vector3(side * 18.2, side * 9.5, 0.0), Vector3(1.5, 0.28, 0.5), Color(0.95, 0.95, 1.0), true))
 	course_root.add_child(frame)
 	course_objects.append(frame)
 
 
 func _spawn_asteroid_corridor(z_position: float) -> void:
-	var rock_colors := [Color(0.11, 0.2, 0.31), Color(0.16, 0.26, 0.37), Color(0.22, 0.31, 0.39), Color(0.13, 0.25, 0.4)]
+	if asteroid_scenes.is_empty():
+		return
 	for side in [-1.0, 1.0]:
 		var count := rng.randi_range(3, 5)
 		for i in range(count):
-			var rock := Node3D.new()
-			rock.position = Vector3(side * rng.randf_range(12.0, 18.0), rng.randf_range(-7.2, 7.2), z_position - rng.randf_range(0.0, 46.0))
+			var rock: Node3D = asteroid_scenes[rng.randi_range(0, asteroid_scenes.size() - 1)].instantiate()
+			rock.position = Vector3(side * rng.randf_range(17.0, 24.0), rng.randf_range(-9.2, 9.2), z_position - rng.randf_range(0.0, 46.0))
 			rock.rotation = Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.7, 0.7))
-			var base_size := Vector3(rng.randf_range(3.2, 6.0), rng.randf_range(3.0, 5.8), rng.randf_range(3.0, 6.0))
-			var main_tint: Color = rock_colors[rng.randi_range(0, rock_colors.size() - 1)]
-			rock.add_child(_make_block(Vector3.ZERO, base_size, main_tint))
-			for shard_index in range(2):
-				var shard_size := Vector3(rng.randf_range(1.2, 2.8), rng.randf_range(1.4, 3.0), rng.randf_range(1.3, 3.2))
-				var shard_offset := Vector3(rng.randf_range(-2.5, 2.5), rng.randf_range(-2.2, 2.2), rng.randf_range(-2.5, 2.5))
-				var shard_tint := main_tint.lightened(rng.randf_range(0.08, 0.32))
-				var shard := _make_block(shard_offset, shard_size, shard_tint)
-				shard.rotation = Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.8, 0.8))
-				rock.add_child(shard)
+			var rock_scale := rng.randf_range(0.7, 1.35)
+			rock.scale = Vector3.ONE * rock_scale
 			course_root.add_child(rock)
 			course_objects.append(rock)
 
 
 func _spawn_gate(z_position: float, open_index: int) -> void:
 	var slots := [
+		Vector3(-12.0, 0.0, z_position),
 		Vector3(-6.0, 0.0, z_position),
-		Vector3(-2.0, 0.0, z_position),
-		Vector3(2.0, 0.0, z_position),
+		Vector3(0.0, 0.0, z_position),
 		Vector3(6.0, 0.0, z_position),
+		Vector3(12.0, 0.0, z_position),
 	]
 	for i in range(slots.size()):
 		if i == open_index:
 			continue
 		_spawn_hazard(slots[i], Vector3(3.1, 4.0, 2.7), Color(0.76, 0.19, 0.23))
-	_spawn_hazard(Vector3(0.0, 6.8, z_position), Vector3(23.0, 1.2, 2.7), Color(0.32, 0.39, 0.56))
-	_spawn_hazard(Vector3(0.0, -6.8, z_position), Vector3(23.0, 1.2, 2.7), Color(0.32, 0.39, 0.56))
+	_spawn_hazard(Vector3(0.0, 9.7, z_position), Vector3(38.0, 1.2, 2.7), Color(0.32, 0.39, 0.56))
+	_spawn_hazard(Vector3(0.0, -9.7, z_position), Vector3(38.0, 1.2, 2.7), Color(0.32, 0.39, 0.56))
 	if rng.randf() < 0.45:
 		_spawn_pickup(Vector3(slots[open_index].x, rng.randf_range(-1.0, 1.0), z_position - 1.0), "scrap")
 
 
 func _spawn_debris(z_position: float, count: int) -> void:
 	for i in range(count):
-		var x := rng.randf_range(-9.0, 9.0)
-		var y := rng.randf_range(-5.0, 5.0)
+		var x := rng.randf_range(-13.5, 13.5)
+		var y := rng.randf_range(-7.2, 7.2)
 		if absf(x) < 2.0 and absf(y) < 1.5:
 			x = 4.2 if x >= 0.0 else -4.2
 		var dims := Vector3(rng.randf_range(1.4, 3.4), rng.randf_range(1.2, 3.2), rng.randf_range(1.8, 4.0))
@@ -735,13 +880,13 @@ func _spawn_salvage_line(z_position: float) -> void:
 
 
 func _spawn_alternating_wall(z_position: float, level: int) -> void:
-	var safe_x := rng.randf_range(-6.5, 6.5)
+	var safe_x := rng.randf_range(-10.5, 10.5)
 	var count := 3 + mini(level, 2)
 	for i in range(count):
-		var x := rng.randf_range(-9.5, 9.5)
-		while absf(x - safe_x) < 4.0:
-			x = rng.randf_range(-9.5, 9.5)
-		var y := rng.randf_range(-4.5, 4.5)
+		var x := rng.randf_range(-13.8, 13.8)
+		while absf(x - safe_x) < 5.5:
+			x = rng.randf_range(-13.8, 13.8)
+		var y := rng.randf_range(-7.2, 7.2)
 		_spawn_hazard(Vector3(x, y, z_position - float(i) * 5.5), Vector3(rng.randf_range(2.2, 4.0), rng.randf_range(2.0, 3.4), 2.6), Color(0.69, 0.24, 0.3))
 		safe_x = -safe_x * 0.65
 	if rng.randf() < 0.55:
@@ -790,7 +935,7 @@ func _spawn_pickup(at: Vector3, kind: String) -> void:
 
 func _spawn_enemy(z_position: float) -> void:
 	var enemy := Area3D.new()
-	enemy.position = Vector3(rng.randf_range(-7.0, 7.0), rng.randf_range(-3.5, 3.5), z_position)
+	enemy.position = Vector3(rng.randf_range(-11.0, 11.0), rng.randf_range(-6.0, 6.0), z_position)
 	enemy.collision_layer = 4
 	enemy.collision_mask = 1
 	enemy.add_to_group("enemies")
@@ -926,13 +1071,22 @@ func _update_radar() -> void:
 			var z_distance := item.position.z + course_root.position.z - player.position.z
 			if z_distance < -145.0 or z_distance > 8.0:
 				continue
-			var offset := Vector2((item.position.x - player.position.x) / 22.0, z_distance / 145.0)
+			var offset := Vector2((item.position.x - player.position.x) / 31.0, z_distance / 145.0)
 			if offset.length() <= 1.25:
 				radar_widget.blips.append({"offset": offset, "tint": tint})
 	radar_widget.queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
+	if state == ScreenState.BUILDER:
+		var screen_width := get_viewport().get_visible_rect().size.x
+		if event is InputEventScreenDrag and event.position.x > screen_width * 0.65:
+			player.rotation.y += event.relative.x * 0.006
+			player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
+		elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and event.position.x > screen_width * 0.65:
+			player.rotation.y += event.relative.x * 0.006
+			player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
+		return
 	if state != ScreenState.RUN:
 		return
 	if event is InputEventScreenDrag:
@@ -960,8 +1114,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _update_steering_from_delta(drag_delta: Vector2) -> void:
 	var bounds := get_viewport().get_visible_rect().size
-	steering_target.x = clampf(steering_target.x + drag_delta.x * 16.0 / bounds.x, -9.2, 9.2)
-	steering_target.y = clampf(steering_target.y - drag_delta.y * 11.0 / bounds.y, -5.2, 5.2)
+	steering_target.x = clampf(steering_target.x + drag_delta.x * 20.0 / bounds.x, -14.5, 14.5)
+	steering_target.y = clampf(steering_target.y - drag_delta.y * 14.0 / bounds.y, -8.5, 8.5)
 
 
 func _load_profile() -> void:

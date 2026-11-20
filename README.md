@@ -5,11 +5,13 @@ A standalone, low-poly space-flight arcade game built with Godot. Courses are as
 ## Current playable slice
 
 - Landscape flight view with responsive expanded layout for wider Android screens.
+- Expanded free-flight steering range so you can sweep across the open course instead of staying near the center.
 - Endless runs assembled from block gates, debris fields, salvage paths, and drone encounters.
-- Low-poly asteroid clusters frame the flight path, with blue distance haze, spinning diamond salvage, a forward radar, and a boost meter.
 - Drag to steer; hold **FIRE** to shoot; tap **BOOST** to surge. Desktop testing also supports mouse drag, Space, and Shift.
 - Three lives per run. A rare life cache has a random 20% chance to appear in each run.
 - Scrap and unlocked ship blocks persist between runs. Four modular parts can be bought and equipped in the hangar; the active build resets after a run ends.
+- Separate ship-builder window with category tabs, photo-style previews, scrap costs, and a rotatable live ship preview.
+- Blender-authored low-poly ship modules and three asteroid models used in the generated flight corridors, with the editable source scene and generation script included.
 
 This is an early playable build. Flight feel, collision spacing, and touch sizing are ready for device feedback and tuning.
 
