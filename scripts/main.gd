@@ -92,6 +92,9 @@ var placement_rotation := 0.0
 var part_placements: Array[Dictionary] = []
 var builder_pointer_start := Vector2.ZERO
 var builder_pointer_active := false
+var builder_drag_source := ""
+var builder_dragging := false
+var builder_drag_ghost: TextureRect
 var space_background: TextureRect
 
 var total_scrap := 0
@@ -492,9 +495,18 @@ func _build_ui() -> void:
 	builder_preview_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	builder_preview_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	shop_panel.add_child(builder_preview_label)
-	builder_place_label = _label("SELECT A BLOCK, THEN TAP THE SHIP TO PLACE IT", 17, Color(0.74, 0.88, 1.0))
+	builder_place_label = _label("DRAG A BLOCK ONTO THE SHIP  •  IT SNAPS TO MAGNET POINTS", 17, Color(0.74, 0.88, 1.0))
 	builder_place_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_panel.add_child(builder_place_label)
+	builder_drag_ghost = TextureRect.new()
+	builder_drag_ghost.custom_minimum_size = Vector2(118.0, 82.0)
+	builder_drag_ghost.size = Vector2(118.0, 82.0)
+	builder_drag_ghost.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	builder_drag_ghost.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	builder_drag_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	builder_drag_ghost.visible = false
+	builder_drag_ghost.z_index = 20
+	shop_panel.add_child(builder_drag_ghost)
 	var placement_tools := HBoxContainer.new()
 	placement_tools.add_theme_constant_override("separation", 8)
 	shop_panel.add_child(placement_tools)
@@ -766,7 +778,7 @@ func _update_shop_buttons() -> void:
 	builder_preview_label.text = "3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 3 BLOCKS" % part_placements.size()
 	if is_instance_valid(builder_place_label):
 		var title := str(PARTS[selected_part_id].title) if PARTS.has(selected_part_id) else "NO BLOCK SELECTED"
-		builder_place_label.text = "SELECTED: %s  •  TAP OPEN CANVAS TO PLACE" % title
+		builder_place_label.text = "DRAG %s ONTO THE SHIP  •  MAGNETIC SNAP" % title if not selected_part_id.is_empty() else "DRAG A BLOCK ONTO THE SHIP  •  IT SNAPS TO MAGNET POINTS"
 		builder_remove_button.disabled = part_placements.is_empty()
 		builder_clear_button.disabled = part_placements.is_empty()
 
@@ -801,15 +813,109 @@ func _place_selected_block(screen_position: Vector2) -> void:
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
 	var canvas_left := viewport_size.x * 0.65
-	var x := clampf(((screen_position.x - canvas_left) / maxf(viewport_size.x - canvas_left, 1.0) - 0.5) * 4.2, -2.1, 2.1)
+	var x := clampf(((screen_position.x - canvas_left) / maxf(viewport_size.x - canvas_left, 1.0) - 0.5) * 4.2, -2.4, 2.4)
 	var y_fraction := clampf((screen_position.y / viewport_size.y - 0.2) / 0.62, 0.0, 1.0)
-	var y := lerpf(1.35, -1.35, y_fraction)
-	part_placements.append({"id": selected_part_id, "position": Vector3(x, y, -0.1), "rotation": placement_rotation})
+	var y := lerpf(1.55, -1.55, y_fraction)
+	var snapped := _find_magnetic_snap(Vector2(x, y), selected_part_id, placement_rotation)
+	if snapped.x < -100.0:
+		shop_status.text = "NO OPEN MAGNET SOCKET NEARBY  •  TRY ANOTHER SPOT"
+		return
+	part_placements.append({"id": selected_part_id, "position": Vector3(snapped.x, snapped.y, -0.1), "rotation": placement_rotation})
 	_sync_equipped_parts()
 	_rebuild_ship_mesh()
 	_save_profile()
-	shop_status.text = "%s PLACED  •  DRAG TO ORBIT THE SHIP" % str(PARTS[selected_part_id].title)
+	shop_status.text = "%s SNAPPED INTO PLACE" % str(PARTS[selected_part_id].title)
 	_update_shop_buttons()
+
+
+func _find_magnetic_snap(target: Vector2, new_part_id: String, new_rotation: float) -> Vector2:
+	var new_size := _part_dimensions(new_part_id)
+	if int(round(absf(new_rotation) / (PI * 0.5))) % 2 == 1:
+		new_size = Vector2(new_size.y, new_size.x)
+	var candidates: Array[Vector2] = [
+		Vector2(-0.775 - new_size.x * 0.5 - 0.1, 0.0),
+		Vector2(0.775 + new_size.x * 0.5 + 0.1, 0.0),
+		Vector2(0.0, -0.4 - new_size.y * 0.5 - 0.1),
+		Vector2(0.0, 0.4 + new_size.y * 0.5 + 0.1),
+	]
+	for placement in part_placements:
+		var position: Vector3 = placement.get("position", Vector3.ZERO)
+		var extent := _part_dimensions(str(placement.get("id", "")))
+		var block_rotation := float(placement.get("rotation", 0.0))
+		if int(round(absf(block_rotation) / (PI * 0.5))) % 2 == 1:
+			extent = Vector2(extent.y, extent.x)
+		candidates.append(Vector2(position.x - extent.x * 0.5 - new_size.x * 0.5 - 0.1, position.y))
+		candidates.append(Vector2(position.x + extent.x * 0.5 + new_size.x * 0.5 + 0.1, position.y))
+		candidates.append(Vector2(position.x, position.y - extent.y * 0.5 - new_size.y * 0.5 - 0.1))
+		candidates.append(Vector2(position.x, position.y + extent.y * 0.5 + new_size.y * 0.5 + 0.1))
+	var best := Vector2(-999.0, -999.0)
+	var best_distance := 2.05
+	for candidate in candidates:
+		if absf(candidate.x) > 2.55 or absf(candidate.y) > 1.9:
+			continue
+		var occupied := absf(candidate.x) < (0.775 + new_size.x * 0.5 - 0.04) and absf(candidate.y) < (0.4 + new_size.y * 0.5 - 0.04)
+		for placement in part_placements:
+			var position: Vector3 = placement.get("position", Vector3.ZERO)
+			var extent := _part_dimensions(str(placement.get("id", "")))
+			if int(round(absf(float(placement.get("rotation", 0.0))) / (PI * 0.5))) % 2 == 1:
+				extent = Vector2(extent.y, extent.x)
+			if absf(candidate.x - position.x) < (new_size.x + extent.x) * 0.5 - 0.04 and absf(candidate.y - position.y) < (new_size.y + extent.y) * 0.5 - 0.04:
+				occupied = true
+		if occupied:
+			continue
+		var distance_to_target := candidate.distance_to(target)
+		if distance_to_target < best_distance:
+			best = candidate
+			best_distance = distance_to_target
+	return best
+
+
+func _part_dimensions(part_id: String) -> Vector2:
+	match part_id:
+		"splitter_nose": return Vector2(0.92, 0.34)
+		"wing_pack": return Vector2(1.0, 0.2)
+		"fin_set": return Vector2(0.28, 0.76)
+		"boost_core": return Vector2(0.52, 0.42)
+		"side_pods": return Vector2(0.48, 0.52)
+		"twin_cannon": return Vector2(0.24, 0.24)
+		"armor": return Vector2(0.92, 0.22)
+	return Vector2(0.8, 0.48)
+
+
+func _part_under_pointer(screen_position: Vector2) -> String:
+	for part_id in shop_buttons.keys():
+		var button: Button = shop_buttons[part_id]
+		if owned_parts.has(part_id) and button.visible and button.get_global_rect().has_point(screen_position):
+			return str(part_id)
+	return ""
+
+
+func _move_builder_drag(screen_position: Vector2) -> void:
+	if builder_drag_source.is_empty() or not builder_pointer_active:
+		return
+	if not builder_dragging and screen_position.distance_to(builder_pointer_start) >= 12.0:
+		builder_dragging = true
+		selected_part_id = builder_drag_source
+		var item: Dictionary = PARTS.get(selected_part_id, {})
+		var preview_path := str(item.get("preview", ""))
+		builder_drag_ghost.texture = load(preview_path) if ResourceLoader.exists(preview_path) else null
+		builder_drag_ghost.visible = true
+		_update_shop_buttons()
+	if builder_dragging:
+		builder_drag_ghost.position = screen_position - builder_drag_ghost.size * 0.5
+
+
+func _finish_builder_drag(screen_position: Vector2) -> bool:
+	var did_drag := builder_dragging
+	if did_drag:
+		selected_part_id = builder_drag_source
+		builder_drag_ghost.visible = false
+		var viewport_size := get_viewport().get_visible_rect().size
+		if screen_position.x > viewport_size.x * 0.65 and screen_position.y > viewport_size.y * 0.22 and screen_position.y < viewport_size.y * 0.84:
+			_place_selected_block(screen_position)
+		else:
+			_update_shop_buttons()
+	return did_drag
 
 
 func _sync_equipped_parts() -> void:
@@ -1368,24 +1474,42 @@ func _input(event: InputEvent) -> void:
 			if event.pressed:
 				builder_pointer_start = event.position
 				builder_pointer_active = true
+				builder_drag_source = _part_under_pointer(event.position)
+				builder_dragging = false
 			else:
-				if builder_pointer_active and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
+				var did_drag := _finish_builder_drag(event.position)
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
+				builder_drag_source = ""
+				builder_dragging = false
 		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				builder_pointer_start = event.position
 				builder_pointer_active = true
+				builder_drag_source = _part_under_pointer(event.position)
+				builder_dragging = false
 			else:
-				if builder_pointer_active and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
+				var did_drag := _finish_builder_drag(event.position)
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
-		elif event is InputEventScreenDrag and event.position.x > screen_width * 0.65:
-			player.rotation.y += event.relative.x * 0.006
-			player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
-		elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and event.position.x > screen_width * 0.65:
-			player.rotation.y += event.relative.x * 0.006
-			player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
+				builder_drag_source = ""
+				builder_dragging = false
+		elif event is InputEventScreenDrag:
+			_move_builder_drag(event.position)
+			if builder_dragging:
+				return
+			if event.position.x > screen_width * 0.65:
+				player.rotation.y += event.relative.x * 0.006
+				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
+		elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			_move_builder_drag(event.position)
+			if builder_dragging:
+				return
+			if event.position.x > screen_width * 0.65:
+				player.rotation.y += event.relative.x * 0.006
+				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
 		return
 	if state != ScreenState.RUN:
 		return
