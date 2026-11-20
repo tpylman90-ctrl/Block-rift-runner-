@@ -148,10 +148,13 @@ var boost_button: Button
 var boost_meter: ProgressBar
 var shop_status: Label
 var shop_buttons: Dictionary = {}
-var builder_tabs: HBoxContainer
+var builder_tabs: GridContainer
 var builder_grid: GridContainer
 var active_category := "ALL"
 var builder_preview_label: Label
+var builder_stats_panel: PanelContainer
+var builder_stat_labels: Array[Label] = []
+var builder_stat_bars: Array[ProgressBar] = []
 var builder_cards: Dictionary = {}
 var builder_place_label: Label
 var builder_rotate_button: Button
@@ -169,7 +172,7 @@ var builder_pointer_active := false
 var builder_drag_source := ""
 var builder_dragging := false
 var builder_drag_ghost: TextureRect
-var space_background: TextureRect
+var space_background: MeshInstance3D
 
 var total_scrap := 0
 var run_scrap := 0
@@ -239,7 +242,6 @@ func _build_world() -> void:
 	environment.fog_sun_scatter = 0.22
 	world_environment.environment = environment
 	add_child(world_environment)
-	_build_space_background_layer()
 
 	var key_light := DirectionalLight3D.new()
 	key_light.rotation_degrees = Vector3(-28.0, -25.0, 0.0)
@@ -251,6 +253,7 @@ func _build_world() -> void:
 	camera.current = true
 	camera.fov = 78.0
 	add_child(camera)
+	_build_space_background_layer()
 	_build_space_backdrop()
 
 	course_root = Node3D.new()
@@ -264,17 +267,34 @@ func _build_space_backdrop() -> void:
 
 
 func _build_space_background_layer() -> void:
-	var background_layer := CanvasLayer.new()
-	background_layer.layer = -1
-	add_child(background_layer)
-	space_background = TextureRect.new()
+	# A camera-following photo plane acts like a scenic skybox while keeping
+	# nearer 3D asteroids and course geometry in front of it.
+	space_background = MeshInstance3D.new()
 	space_background.name = "PhotoSpaceBackground"
-	space_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	space_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	space_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	space_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	background_layer.add_child(space_background)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(160.0, 90.0)
+	space_background.mesh = quad
+	space_background.position = Vector3(0.0, 0.0, -70.0)
+	space_background.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	space_background.material_override = StandardMaterial3D.new()
+	space_background.material_override.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	space_background.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
+	camera.add_child(space_background)
+	_fit_space_background()
 
+
+func _fit_space_background() -> void:
+	if not is_instance_valid(space_background) or not is_instance_valid(camera):
+		return
+	var viewport_size := get_viewport().get_visible_rect().size
+	if viewport_size.y <= 0.0:
+		return
+	var plane_distance := 70.0
+	var plane_height := 2.0 * plane_distance * tan(deg_to_rad(camera.fov * 0.5))
+	var aspect := viewport_size.x / viewport_size.y
+	var quad := space_background.mesh as QuadMesh
+	quad.size = Vector2(plane_height * aspect, plane_height)
+	space_background.position = Vector3(0.0, 0.0, -plane_distance)
 
 func _choose_background_view() -> void:
 	var choices := SPACE_BACKGROUNDS.size() * BACKGROUND_ANGLES
@@ -293,7 +313,9 @@ func _choose_background_view() -> void:
 		var x_offset := float(selected_background_angle) * (1.0 - x_scale) / float(BACKGROUND_ANGLES - 1)
 		var y_offset := float((selected_background_index + selected_background_angle) % 3) * (1.0 - y_scale) / 2.0
 		atlas.region = Rect2(texture_size.x * x_offset, texture_size.y * y_offset, texture_size.x * x_scale, texture_size.y * y_scale)
-		space_background.texture = atlas
+		var material := space_background.material_override as StandardMaterial3D
+		material.albedo_texture = atlas
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 
 
 func _load_asteroid_models() -> void:
@@ -354,18 +376,35 @@ func _build_ship_grid() -> void:
 	build_grid_root.visible = false
 	var grid_mesh := ImmediateMesh.new()
 	grid_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for x_step in range(-8, 9):
+	var back_z := -1.9
+	var front_z := 1.9
+	# Two gridded faces give a clear depth cage while leaving the ship readable.
+	for depth in [back_z, front_z]:
+		for x_step in range(-8, 9, 2):
+			var x := float(x_step) * BUILD_GRID
+			grid_mesh.surface_add_vertex(Vector3(x, -3.0, depth))
+			grid_mesh.surface_add_vertex(Vector3(x, 3.0, depth))
+		for y_step in range(-6, 7, 2):
+			var y := float(y_step) * BUILD_GRID
+			grid_mesh.surface_add_vertex(Vector3(-4.0, y, depth))
+			grid_mesh.surface_add_vertex(Vector3(4.0, y, depth))
+	# Join matching grid points along the side walls to make depth placement intuitive.
+	for x_step in range(-8, 9, 2):
 		var x := float(x_step) * BUILD_GRID
-		grid_mesh.surface_add_vertex(Vector3(x, -3.0, -1.85))
-		grid_mesh.surface_add_vertex(Vector3(x, 3.0, -1.85))
-	for y_step in range(-6, 7):
+		grid_mesh.surface_add_vertex(Vector3(x, -3.0, back_z))
+		grid_mesh.surface_add_vertex(Vector3(x, -3.0, front_z))
+		grid_mesh.surface_add_vertex(Vector3(x, 3.0, back_z))
+		grid_mesh.surface_add_vertex(Vector3(x, 3.0, front_z))
+	for y_step in range(-6, 7, 2):
 		var y := float(y_step) * BUILD_GRID
-		grid_mesh.surface_add_vertex(Vector3(-4.0, y, -1.85))
-		grid_mesh.surface_add_vertex(Vector3(4.0, y, -1.85))
+		grid_mesh.surface_add_vertex(Vector3(-4.0, y, back_z))
+		grid_mesh.surface_add_vertex(Vector3(-4.0, y, front_z))
+		grid_mesh.surface_add_vertex(Vector3(4.0, y, back_z))
+		grid_mesh.surface_add_vertex(Vector3(4.0, y, front_z))
 	grid_mesh.surface_end()
 	var grid_material := StandardMaterial3D.new()
 	grid_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	grid_material.albedo_color = Color(0.18, 0.68, 0.92, 0.26)
+	grid_material.albedo_color = Color(0.18, 0.68, 0.92, 0.34)
 	grid_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	grid_material.no_depth_test = true
 	var grid_instance := MeshInstance3D.new()
@@ -373,8 +412,32 @@ func _build_ship_grid() -> void:
 	grid_instance.material_override = grid_material
 	grid_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	build_grid_root.add_child(grid_instance)
+	# Brighter frame marks the build bounds from every camera angle.
+	var frame_mesh := ImmediateMesh.new()
+	frame_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for x in [-4.0, 4.0]:
+		for y in [-3.0, 3.0]:
+			frame_mesh.surface_add_vertex(Vector3(x, y, back_z))
+			frame_mesh.surface_add_vertex(Vector3(x, y, front_z))
+	for depth in [back_z, front_z]:
+		for y in [-3.0, 3.0]:
+			frame_mesh.surface_add_vertex(Vector3(-4.0, y, depth))
+			frame_mesh.surface_add_vertex(Vector3(4.0, y, depth))
+		for x in [-4.0, 4.0]:
+			frame_mesh.surface_add_vertex(Vector3(x, -3.0, depth))
+			frame_mesh.surface_add_vertex(Vector3(x, 3.0, depth))
+	frame_mesh.surface_end()
+	var frame_material := StandardMaterial3D.new()
+	frame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	frame_material.albedo_color = Color(0.22, 0.84, 1.0, 0.8)
+	frame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	frame_material.no_depth_test = true
+	var frame_instance := MeshInstance3D.new()
+	frame_instance.mesh = frame_mesh
+	frame_instance.material_override = frame_material
+	frame_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	build_grid_root.add_child(frame_instance)
 	player.add_child(build_grid_root)
-
 
 func _rebuild_ship_mesh() -> void:
 	engine_flames.clear()
@@ -577,40 +640,42 @@ func _build_ui() -> void:
 	builder_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_panel.add_child(builder_shade)
 	var builder_window := PanelContainer.new()
-	builder_window.anchor_right = 0.65
+	builder_window.anchor_right = 0.315
 	builder_window.anchor_bottom = 1.0
-	builder_window.offset_left = 28.0
-	builder_window.offset_top = 28.0
-	builder_window.offset_right = -18.0
-	builder_window.offset_bottom = -28.0
+	builder_window.offset_left = 18.0
+	builder_window.offset_top = 18.0
+	builder_window.offset_right = -8.0
+	builder_window.offset_bottom = -18.0
 	var window_style := StyleBoxFlat.new()
 	window_style.bg_color = Color(0.012, 0.04, 0.09, 0.95)
 	window_style.border_color = Color(0.12, 0.58, 0.82, 0.9)
 	window_style.set_border_width_all(2)
 	window_style.set_corner_radius_all(14)
-	window_style.content_margin_left = 18
-	window_style.content_margin_right = 18
+	window_style.content_margin_left = 10
+	window_style.content_margin_right = 10
 	window_style.content_margin_top = 14
 	window_style.content_margin_bottom = 14
 	builder_window.add_theme_stylebox_override("panel", window_style)
 	shop_panel.add_child(builder_window)
 	var shop_column := VBoxContainer.new()
-	shop_column.add_theme_constant_override("separation", 10)
+	shop_column.add_theme_constant_override("separation", 6)
 	builder_window.add_child(shop_column)
 	var builder_header := HBoxContainer.new()
 	shop_column.add_child(builder_header)
-	var shop_title := _label("SHIP BUILDER  /  BLOCK LIBRARY", 31, Color(0.53, 0.88, 1.0))
+	var shop_title := _label("SHIP BUILDER  /  BLOCK LIBRARY", 22, Color(0.53, 0.88, 1.0))
 	shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	builder_header.add_child(shop_title)
-	shop_status = _label("", 20, Color(1.0, 0.77, 0.35))
+	shop_status = _label("", 15, Color(1.0, 0.77, 0.35))
 	shop_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	builder_header.add_child(shop_status)
-	builder_tabs = HBoxContainer.new()
-	builder_tabs.add_theme_constant_override("separation", 6)
+	builder_tabs = GridContainer.new()
+	builder_tabs.columns = 4
+	builder_tabs.add_theme_constant_override("h_separation", 4)
+	builder_tabs.add_theme_constant_override("v_separation", 4)
 	shop_column.add_child(builder_tabs)
 	for category in PART_CATEGORIES:
-		var tab := _button(category, 15)
-		tab.custom_minimum_size = Vector2(0.0, 48.0)
+		var tab := _button(category, 11)
+		tab.custom_minimum_size = Vector2(0.0, 32.0)
 		tab.set_meta("builder_component", true)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.pressed.connect(_set_builder_category.bind(category))
@@ -628,7 +693,7 @@ func _build_ui() -> void:
 	for part_id in PARTS.keys():
 		var item: Dictionary = PARTS[part_id]
 		var card := PanelContainer.new()
-		card.custom_minimum_size = Vector2(280.0, 220.0)
+		card.custom_minimum_size = Vector2(190.0, 166.0)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var card_style := StyleBoxFlat.new()
 		card_style.bg_color = Color(0.025, 0.08, 0.14, 0.97)
@@ -644,7 +709,7 @@ func _build_ui() -> void:
 		card_column.add_theme_constant_override("separation", 4)
 		card.add_child(card_column)
 		var thumbnail := TextureRect.new()
-		thumbnail.custom_minimum_size = Vector2(260.0, 118.0)
+		thumbnail.custom_minimum_size = Vector2(175.0, 68.0)
 		thumbnail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -659,13 +724,13 @@ func _build_ui() -> void:
 			part_preview.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			thumbnail.add_child(part_preview)
 		card_column.add_child(thumbnail)
-		var part_title := _label(str(item.title), 18, Color(0.88, 0.95, 1.0))
+		var part_title := _label(str(item.title), 13, Color(0.88, 0.95, 1.0))
 		card_column.add_child(part_title)
 		var cost_label := "FREE" if int(item.cost) == 0 else "%d SCRAP" % int(item.cost)
-		var part_hint := _label("%s  •  %s  •  %.1f MASS" % [str(item.hint), cost_label, float(item.mass)], 14, Color(0.55, 0.76, 0.93))
+		var part_hint := _label("%s  •  %s  •  %.1f MASS" % [str(item.hint), cost_label, float(item.mass)], 10, Color(0.55, 0.76, 0.93))
 		card_column.add_child(part_hint)
-		var part_button := _button("", 15)
-		part_button.custom_minimum_size = Vector2(0.0, 42.0)
+		var part_button := _button("", 10)
+		part_button.custom_minimum_size = Vector2(0.0, 30.0)
 		part_button.set_meta("builder_component", true)
 		part_button.pressed.connect(_on_shop_part_pressed.bind(part_id))
 		card_column.add_child(part_button)
@@ -674,24 +739,67 @@ func _build_ui() -> void:
 		builder_cards[part_id] = card
 	var builder_footer := HBoxContainer.new()
 	shop_column.add_child(builder_footer)
-	var shop_note := _label("20 BLOCKS MAX  •  50 MASS LIMIT  •  HEAVY BUILDS TURN / BOOST SLOWER  •  UNLOCKS PERSIST", 14, Color(0.62, 0.69, 0.83))
+	var shop_note := _label("20 BLOCKS  •  50 MASS LIMIT  •  UNLOCKS PERSIST", 10, Color(0.62, 0.69, 0.83))
 	shop_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	builder_footer.add_child(shop_note)
-	var back := _button("FLIGHT DECK", 17)
-	back.custom_minimum_size = Vector2(180.0, 46.0)
+	var back := _button("FLIGHT DECK", 11)
+	back.custom_minimum_size = Vector2(108.0, 36.0)
 	back.set_meta("builder_component", true)
 	back.pressed.connect(_show_hangar)
 	builder_footer.add_child(back)
-	builder_preview_label = _label("3D SHIP PREVIEW\nWEIGHT %.1f / %.0f" % [_ship_weight(), SHIP_WEIGHT_LIMIT], 21, Color(0.78, 0.9, 1.0))
+	builder_preview_label = _label("SHIP WORKSHOP\nDRAG TO ORBIT", 18, Color(0.78, 0.9, 1.0))
 	builder_preview_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	builder_preview_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	builder_preview_label.add_theme_color_override("font_color", Color(0.78, 0.9, 1.0))
 	shop_panel.add_child(builder_preview_label)
-	builder_place_label = _label("DRAG A BLOCK ONTO THE SHIP  •  IT SNAPS TO MAGNET POINTS", 17, Color(0.74, 0.88, 1.0))
+	builder_place_label = _label("DRAG TO BUILD  •  DRAG BLOCKS TO MOVE", 13, Color(0.74, 0.88, 1.0))
 	builder_place_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_panel.add_child(builder_place_label)
+	var stats_style := StyleBoxFlat.new()
+	stats_style.bg_color = Color(0.012, 0.04, 0.09, 0.93)
+	stats_style.border_color = Color(0.12, 0.58, 0.82, 0.9)
+	stats_style.set_border_width_all(2)
+	stats_style.set_corner_radius_all(12)
+	stats_style.content_margin_left = 14
+	stats_style.content_margin_right = 14
+	stats_style.content_margin_top = 14
+	stats_style.content_margin_bottom = 14
+	builder_stats_panel = PanelContainer.new()
+	builder_stats_panel.add_theme_stylebox_override("panel", stats_style)
+	shop_panel.add_child(builder_stats_panel)
+	var stats_column := VBoxContainer.new()
+	stats_column.add_theme_constant_override("separation", 8)
+	builder_stats_panel.add_child(stats_column)
+	var stats_title := _label("SHIP READOUT", 18, Color(0.53, 0.88, 1.0))
+	stats_column.add_child(stats_title)
+	var stat_names := ["HULL", "OFFENSE", "SPEED", "BOOST", "HANDLING"]
+	for stat_name in stat_names:
+		var stat_label := _label("%s  0" % stat_name, 13, Color(0.85, 0.93, 1.0))
+		stats_column.add_child(stat_label)
+		builder_stat_labels.append(stat_label)
+		var stat_bar := ProgressBar.new()
+		stat_bar.show_percentage = false
+		stat_bar.min_value = 0.0
+		stat_bar.max_value = 100.0
+		stat_bar.custom_minimum_size.y = 10.0
+		var stat_bg := StyleBoxFlat.new()
+		stat_bg.bg_color = Color(0.03, 0.1, 0.18, 0.96)
+		stat_bg.set_corner_radius_all(4)
+		var stat_fill := StyleBoxFlat.new()
+		stat_fill.bg_color = Color(0.2, 0.75, 0.96)
+		stat_fill.set_corner_radius_all(4)
+		stat_bar.add_theme_stylebox_override("background", stat_bg)
+		stat_bar.add_theme_stylebox_override("fill", stat_fill)
+		stats_column.add_child(stat_bar)
+		builder_stat_bars.append(stat_bar)
+	var stats_hint := _label("MASS
+BLOCKS
+SCRAP", 12, Color(0.55, 0.76, 0.93))
+	stats_hint.name = "StatsSummary"
+	stats_column.add_child(stats_hint)
 	builder_drag_ghost = TextureRect.new()
-	builder_drag_ghost.custom_minimum_size = Vector2(118.0, 82.0)
-	builder_drag_ghost.size = Vector2(118.0, 82.0)
+	builder_drag_ghost.custom_minimum_size = Vector2(92.0, 64.0)
+	builder_drag_ghost.size = Vector2(92.0, 64.0)
 	builder_drag_ghost.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	builder_drag_ghost.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	builder_drag_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -877,10 +985,10 @@ func _layout_ui() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	var w := viewport_size.x
 	var h := viewport_size.y
+	_fit_space_background()
 	var button_width := clampf(w * 0.23, 300.0, 480.0)
 	for control in ui_root.find_children("*", "Button", true, false):
 		if control.get_meta("builder_component", false):
-			control.custom_minimum_size.y = 48.0
 			continue
 		control.custom_minimum_size.x = button_width
 		control.custom_minimum_size.y = clampf(h * 0.085, 58.0, 92.0)
@@ -910,13 +1018,15 @@ func _layout_ui() -> void:
 		radar_widget.size = Vector2(minf(h * 0.22, w * 0.12), minf(h * 0.22, w * 0.12))
 		boost_meter.position = Vector2(w - action_button_width - 28.0, h * 0.63)
 		boost_meter.size = Vector2(action_button_width, h * 0.035)
-		builder_preview_label.position = Vector2(w * 0.665, h * 0.045)
-		builder_preview_label.size = Vector2(w * 0.32, h * 0.09)
-		builder_place_label.position = Vector2(w * 0.66, h * 0.14)
-		builder_place_label.size = Vector2(w * 0.33, h * 0.08)
+		builder_preview_label.position = Vector2(w * 0.32, h * 0.025)
+		builder_preview_label.size = Vector2(w * 0.48, h * 0.075)
+		builder_place_label.position = Vector2(w * 0.32, h * 0.105)
+		builder_place_label.size = Vector2(w * 0.48, h * 0.055)
+		builder_stats_panel.position = Vector2(w * 0.815, h * 0.18)
+		builder_stats_panel.size = Vector2(w * 0.17, h * 0.59)
 		var placement_tools := builder_rotate_button.get_parent() as HBoxContainer
-		placement_tools.position = Vector2(w * 0.66, h * 0.87)
-		placement_tools.size = Vector2(w * 0.33, h * 0.09)
+		placement_tools.position = Vector2(w * 0.32, h * 0.88)
+		placement_tools.size = Vector2(w * 0.48, h * 0.085)
 		for tool_button in [builder_rotate_button, builder_remove_button, builder_depth_back_button, builder_depth_forward_button, builder_clear_button]:
 			tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
@@ -951,8 +1061,8 @@ func _show_builder() -> void:
 	build_grid_root.visible = true
 	player.rotation = Vector3.ZERO
 	camera.fov = 62.0
-	camera.position = player.position + Vector3(2.8, 2.4, 13.5)
-	camera.look_at(player.position + Vector3(-10.0, 0.0, 0.0), Vector3.UP)
+	camera.position = player.position + Vector3(1.5, 1.0, 14.5)
+	camera.look_at(player.position + Vector3(-2.0, 0.0, 0.0), Vector3.UP)
 	active_category = "ALL"
 	_update_shop_buttons()
 
@@ -977,8 +1087,27 @@ func _update_shop_buttons() -> void:
 		button.disabled = false
 		var card: Control = builder_cards[part_id]
 		card.visible = active_category == "ALL" or str(item.category) == active_category
-	shop_status.text = "SCRAP %d  •  WEIGHT %.1f / %.0f" % [total_scrap, _ship_weight(), SHIP_WEIGHT_LIMIT]
-	builder_preview_label.text = "SHIP WORKSHOP\nDRAG TO ORBIT  •  %d / %d BLOCKS\nWEIGHT %.1f / %.0f" % [part_placements.size(), MAX_PLACED_BLOCKS, _ship_weight(), SHIP_WEIGHT_LIMIT]
+	var weight := _ship_weight()
+	var weight_ratio := clampf((weight - SHIP_CORE_MASS) / (SHIP_WEIGHT_LIMIT - SHIP_CORE_MASS), 0.0, 1.0)
+	var offense_parts := 0
+	for placement in part_placements:
+		if str(PARTS.get(str(placement.get("id", "")), {}).get("category", "")) == "WEAPONS":
+			offense_parts += 1
+	var hull_score := mini(100, 55 + ship_armor_capacity * 15)
+	var offense_score := mini(100, offense_parts * 32)
+	var speed_score := int((1.0 - weight_ratio * 0.48) * 100.0)
+	var boost_score := mini(100, int(32.0 + ship_boost_power * 8.0))
+	var handling_score := mini(100, int(48.0 + ship_handling_bonus * 110.0))
+	var stat_values := [hull_score, offense_score, speed_score, boost_score, handling_score]
+	var stat_names := ["HULL", "OFFENSE", "SPEED", "BOOST", "HANDLING"]
+	for i in range(mini(builder_stat_labels.size(), stat_values.size())):
+		builder_stat_labels[i].text = "%s  %d" % [stat_names[i], stat_values[i]]
+		builder_stat_bars[i].value = float(stat_values[i])
+	var summary_node := builder_stats_panel.find_child("StatsSummary", true, false) as Label
+	if summary_node:
+		summary_node.text = "MASS  %.1f / %.0f\nBLOCKS  %d / %d\nSCRAP  %d" % [weight, SHIP_WEIGHT_LIMIT, part_placements.size(), MAX_PLACED_BLOCKS, total_scrap]
+	shop_status.text = "SCRAP %d  •  MASS %.1f / %.0f" % [total_scrap, weight, SHIP_WEIGHT_LIMIT]
+	builder_preview_label.text = "SHIP WORKSHOP  •  %d / %d BLOCKS\nDRAG TO ORBIT  •  MASS %.1f / %.0f" % [part_placements.size(), MAX_PLACED_BLOCKS, weight, SHIP_WEIGHT_LIMIT]
 	if is_instance_valid(builder_place_label):
 		var title := str(PARTS[selected_part_id].title) if PARTS.has(selected_part_id) else "NO BLOCK SELECTED"
 		if selected_placement_index >= 0 and selected_placement_index < part_placements.size():
@@ -987,7 +1116,7 @@ func _update_shop_buttons() -> void:
 			builder_remove_button.text = "REMOVE SELECTED"
 		else:
 			builder_remove_button.text = "REMOVE LAST"
-		builder_place_label.text = "DRAG A LIBRARY BLOCK TO BUILD  •  DRAG SHIP BLOCKS TO MOVE" if selected_placement_index < 0 else "EDITING %s  •  DRAG TO MOVE, ROTATE, OR CHANGE DEPTH" % title
+		builder_place_label.text = "DRAG A BLOCK INTO THE GRID TO PLACE  •  DRAG SHIP BLOCKS TO MOVE" if selected_placement_index < 0 else "EDITING %s  •  DRAG TO MOVE, ROTATE, OR CHANGE DEPTH" % title
 		builder_remove_button.disabled = part_placements.is_empty()
 		builder_clear_button.disabled = part_placements.is_empty()
 
@@ -1199,7 +1328,7 @@ func _finish_builder_drag(screen_position: Vector2) -> bool:
 	if did_drag:
 		builder_drag_ghost.visible = false
 		var viewport_size := get_viewport().get_visible_rect().size
-		if screen_position.x > viewport_size.x * 0.65 and screen_position.y > viewport_size.y * 0.22 and screen_position.y < viewport_size.y * 0.84:
+		if screen_position.x > viewport_size.x * 0.31 and screen_position.x < viewport_size.x * 0.81 and screen_position.y > viewport_size.y * 0.17 and screen_position.y < viewport_size.y * 0.88:
 			if source.begins_with("move:"):
 				_move_placed_block(int(source.trim_prefix("move:")), screen_position)
 			elif source.begins_with("part:"):
@@ -1455,8 +1584,8 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			if state == ScreenState.BUILDER:
 				player.rotation.y += delta * 0.24
-				camera.position = camera.position.lerp(player.position + Vector3(2.8, 2.4, 13.5), minf(delta * 3.0, 1.0))
-				camera.look_at(player.position + Vector3(-10.0, 0.0, 0.0), Vector3.UP)
+				camera.position = camera.position.lerp(player.position + Vector3(1.5, 1.0, 14.5), minf(delta * 3.0, 1.0))
+				camera.look_at(player.position + Vector3(-2.0, 0.0, 0.0), Vector3.UP)
 			else:
 				camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
 				camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
@@ -1481,6 +1610,7 @@ func _update_flight(delta: float) -> void:
 		if is_instance_valid(flame):
 			flame.scale.z = flame_pulse * (1.65 if boost_time > 0.0 else 1.0)
 	camera.fov = lerpf(camera.fov, 86.0 if boost_time > 0.0 else 78.0, delta * 4.0)
+	_fit_space_background()
 	camera_shake = move_toward(camera_shake, 0.0, delta * 12.0)
 	distance += current_speed * delta
 	stage_distance += current_speed * delta
@@ -1595,12 +1725,12 @@ func _spawn_asteroid_corridor(z_position: float) -> void:
 	if asteroid_templates.is_empty():
 		return
 	for side in [-1.0, 1.0]:
-		var count := rng.randi_range(3, 5)
+		var count := rng.randi_range(5, 8)
 		for i in range(count):
 			var rock: Node3D = asteroid_templates[rng.randi_range(0, asteroid_templates.size() - 1)].duplicate()
 			rock.position = Vector3(side * rng.randf_range(17.0, 24.0), rng.randf_range(-9.2, 9.2), z_position - rng.randf_range(0.0, 46.0))
 			rock.rotation = Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.7, 0.7))
-			var rock_scale := rng.randf_range(0.7, 1.35)
+			var rock_scale := rng.randf_range(0.9, 2.2)
 			rock.scale = Vector3.ONE * rock_scale
 			course_root.add_child(rock)
 			course_objects.append(rock)
@@ -1913,7 +2043,7 @@ func _input(event: InputEvent) -> void:
 				builder_dragging = false
 			else:
 				var did_drag := _finish_builder_drag(event.position)
-				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
 				builder_drag_source = ""
@@ -1926,7 +2056,7 @@ func _input(event: InputEvent) -> void:
 				builder_dragging = false
 			else:
 				var did_drag := _finish_builder_drag(event.position)
-				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.65 and event.position.y > get_viewport().get_visible_rect().size.y * 0.22 and event.position.y < get_viewport().get_visible_rect().size.y * 0.84:
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
 				builder_drag_source = ""
@@ -1935,14 +2065,14 @@ func _input(event: InputEvent) -> void:
 			_move_builder_drag(event.position)
 			if builder_dragging:
 				return
-			if event.position.x > screen_width * 0.65:
+			if event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81:
 				player.rotation.y += event.relative.x * 0.006
 				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
 		elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_move_builder_drag(event.position)
 			if builder_dragging:
 				return
-			if event.position.x > screen_width * 0.65:
+			if event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81:
 				player.rotation.y += event.relative.x * 0.006
 				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
 		return
