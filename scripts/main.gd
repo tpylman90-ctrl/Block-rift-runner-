@@ -22,6 +22,8 @@ enum ScreenState { HANGAR, BUILDER, RUN, STAGE_BREAK, GAME_OVER }
 const PROFILE_PATH := "user://pilot_profile.cfg"
 const STAGE_DISTANCE := 360.0
 const STAGE_MULTIPLIER_STEP := 0.25
+const MAX_PLACED_BLOCKS := 12
+const BUILD_GRID := 0.5
 const BACKGROUND_ANGLES := 5
 const SPACE_BACKGROUNDS := [
 	"res://art/backgrounds/rift_way.jpg",
@@ -52,6 +54,7 @@ var asteroid_templates: Array[Node3D] = []
 var state: ScreenState = ScreenState.HANGAR
 var rng := RandomNumberGenerator.new()
 var player: CharacterBody3D
+var build_grid_root: Node3D
 var camera: Camera3D
 var course_root: Node3D
 var ui_root: Control
@@ -87,8 +90,12 @@ var builder_place_label: Label
 var builder_rotate_button: Button
 var builder_remove_button: Button
 var builder_clear_button: Button
+var builder_depth_back_button: Button
+var builder_depth_forward_button: Button
 var selected_part_id := ""
+var selected_placement_index := -1
 var placement_rotation := 0.0
+var placement_depth := -0.1
 var part_placements: Array[Dictionary] = []
 var builder_pointer_start := Vector2.ZERO
 var builder_pointer_active := false
@@ -264,8 +271,37 @@ func _build_ship() -> void:
 	box_shape.size = Vector3(2.3, 1.35, 3.3)
 	body_shape.shape = box_shape
 	player.add_child(body_shape)
+	_build_ship_grid()
 	add_child(player)
 	_rebuild_ship_mesh()
+
+
+func _build_ship_grid() -> void:
+	build_grid_root = Node3D.new()
+	build_grid_root.name = "MagneticBuildGrid"
+	build_grid_root.visible = false
+	var grid_mesh := ImmediateMesh.new()
+	grid_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for x_step in range(-8, 9):
+		var x := float(x_step) * BUILD_GRID
+		grid_mesh.surface_add_vertex(Vector3(x, -3.0, -1.85))
+		grid_mesh.surface_add_vertex(Vector3(x, 3.0, -1.85))
+	for y_step in range(-6, 7):
+		var y := float(y_step) * BUILD_GRID
+		grid_mesh.surface_add_vertex(Vector3(-4.0, y, -1.85))
+		grid_mesh.surface_add_vertex(Vector3(4.0, y, -1.85))
+	grid_mesh.surface_end()
+	var grid_material := StandardMaterial3D.new()
+	grid_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	grid_material.albedo_color = Color(0.18, 0.68, 0.92, 0.26)
+	grid_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	grid_material.no_depth_test = true
+	var grid_instance := MeshInstance3D.new()
+	grid_instance.mesh = grid_mesh
+	grid_instance.material_override = grid_material
+	grid_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	build_grid_root.add_child(grid_instance)
+	player.add_child(build_grid_root)
 
 
 func _rebuild_ship_mesh() -> void:
@@ -298,6 +334,11 @@ func _rebuild_ship_mesh() -> void:
 		var block := _make_placed_part(part_id)
 		block.position = placement.get("position", Vector3.ZERO)
 		block.rotation.z = float(placement.get("rotation", 0.0))
+		if part_placements.find(placement) == selected_placement_index:
+			var selected_material := block.material_override as StandardMaterial3D
+			selected_material.emission_enabled = true
+			selected_material.emission = Color(0.1, 0.62, 1.0)
+			selected_material.emission_energy_multiplier = 0.55
 		player.add_child(block)
 
 
@@ -483,7 +524,7 @@ func _build_ui() -> void:
 		builder_cards[part_id] = card
 	var builder_footer := HBoxContainer.new()
 	shop_column.add_child(builder_footer)
-	var shop_note := _label("UNLOCKS PERSIST  •  BUILD UP TO 4 BLOCKS  •  RUN BUILDS RESET AFTER GAME OVER", 14, Color(0.62, 0.69, 0.83))
+	var shop_note := _label("UNLOCKS PERSIST  •  BUILD WITH UP TO 12 BLOCKS  •  RUN BUILDS RESET AFTER GAME OVER", 14, Color(0.62, 0.69, 0.83))
 	shop_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	builder_footer.add_child(shop_note)
 	var back := _button("FLIGHT DECK", 17)
@@ -510,17 +551,27 @@ func _build_ui() -> void:
 	var placement_tools := HBoxContainer.new()
 	placement_tools.add_theme_constant_override("separation", 8)
 	shop_panel.add_child(placement_tools)
-	builder_rotate_button = _button("ROTATE 90°", 15)
+	builder_rotate_button = _button("ROTATE", 13)
 	builder_rotate_button.custom_minimum_size = Vector2(0.0, 52.0)
 	builder_rotate_button.set_meta("builder_component", true)
 	builder_rotate_button.pressed.connect(_rotate_next_block)
 	placement_tools.add_child(builder_rotate_button)
-	builder_remove_button = _button("REMOVE LAST", 15)
+	builder_remove_button = _button("REMOVE SELECTED", 13)
 	builder_remove_button.custom_minimum_size = Vector2(0.0, 52.0)
 	builder_remove_button.set_meta("builder_component", true)
-	builder_remove_button.pressed.connect(_remove_last_block)
+	builder_remove_button.pressed.connect(_remove_selected_block)
 	placement_tools.add_child(builder_remove_button)
-	builder_clear_button = _button("CLEAR BUILD", 15)
+	builder_depth_back_button = _button("DEPTH −", 13)
+	builder_depth_back_button.custom_minimum_size = Vector2(0.0, 52.0)
+	builder_depth_back_button.set_meta("builder_component", true)
+	builder_depth_back_button.pressed.connect(_adjust_block_depth.bind(-BUILD_GRID))
+	placement_tools.add_child(builder_depth_back_button)
+	builder_depth_forward_button = _button("DEPTH +", 13)
+	builder_depth_forward_button.custom_minimum_size = Vector2(0.0, 52.0)
+	builder_depth_forward_button.set_meta("builder_component", true)
+	builder_depth_forward_button.pressed.connect(_adjust_block_depth.bind(BUILD_GRID))
+	placement_tools.add_child(builder_depth_forward_button)
+	builder_clear_button = _button("CLEAR", 13)
 	builder_clear_button.custom_minimum_size = Vector2(0.0, 52.0)
 	builder_clear_button.set_meta("builder_component", true)
 	builder_clear_button.pressed.connect(_clear_placed_blocks)
@@ -716,7 +767,7 @@ func _layout_ui() -> void:
 		var placement_tools := builder_rotate_button.get_parent() as HBoxContainer
 		placement_tools.position = Vector2(w * 0.66, h * 0.87)
 		placement_tools.size = Vector2(w * 0.33, h * 0.09)
-		for tool_button in [builder_rotate_button, builder_remove_button, builder_clear_button]:
+		for tool_button in [builder_rotate_button, builder_remove_button, builder_depth_back_button, builder_depth_forward_button, builder_clear_button]:
 			tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 
@@ -731,6 +782,7 @@ func _show_hangar() -> void:
 	firing = false
 	if is_instance_valid(player):
 		player.visible = true
+		build_grid_root.visible = false
 		player.position = Vector3(0.0, -0.4, 0.0)
 		player.rotation = Vector3.ZERO
 		camera.position = Vector3(0.0, 3.7, 10.5)
@@ -746,10 +798,11 @@ func _show_builder() -> void:
 	game_over_panel.visible = false
 	hud.visible = false
 	player.visible = true
+	build_grid_root.visible = true
 	player.rotation = Vector3.ZERO
 	camera.fov = 62.0
-	camera.position = player.position + Vector3(1.2, 3.4, 10.0)
-	camera.look_at(player.position + Vector3(-4.3, 0.0, 0.0), Vector3.UP)
+	camera.position = player.position + Vector3(3.2, 2.6, 10.5)
+	camera.look_at(player.position + Vector3(-7.0, 0.0, 0.0), Vector3.UP)
 	active_category = "ALL"
 	_update_shop_buttons()
 
@@ -768,17 +821,23 @@ func _update_shop_buttons() -> void:
 		if not owned:
 			button.text = "BUILD  •  %d SCRAP" % int(item.cost)
 		elif equipped:
-			button.text = "IN BUILD  •  SELECT TO ADD ANOTHER"
+			button.text = "IN BUILD  •  DRAG ANOTHER COPY"
 		else:
-			button.text = "SELECT TO PLACE" if selected_part_id != part_id else "SELECTED  •  TAP SHIP TO PLACE"
+			button.text = "DRAG TO SHIP" if selected_part_id != part_id else "SELECTED  •  DRAG TO BUILD"
 		button.disabled = false
 		var card: Control = builder_cards[part_id]
 		card.visible = active_category == "ALL" or str(item.category) == active_category
-	shop_status.text = "SCRAP %d  •  PLACED %d / 3" % [total_scrap, part_placements.size()]
-	builder_preview_label.text = "3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 3 BLOCKS" % part_placements.size()
+	shop_status.text = "SCRAP %d  •  PLACED %d / %d" % [total_scrap, part_placements.size(), MAX_PLACED_BLOCKS]
+	builder_preview_label.text = "SHIP WORKSHOP\nDRAG TO ORBIT  •  %d / %d BLOCKS" % [part_placements.size(), MAX_PLACED_BLOCKS]
 	if is_instance_valid(builder_place_label):
 		var title := str(PARTS[selected_part_id].title) if PARTS.has(selected_part_id) else "NO BLOCK SELECTED"
-		builder_place_label.text = "DRAG %s ONTO THE SHIP  •  MAGNETIC SNAP" % title if not selected_part_id.is_empty() else "DRAG A BLOCK ONTO THE SHIP  •  IT SNAPS TO MAGNET POINTS"
+		if selected_placement_index >= 0 and selected_placement_index < part_placements.size():
+			var placed_id := str(part_placements[selected_placement_index].get("id", ""))
+			title = str(PARTS.get(placed_id, {}).get("title", placed_id))
+			builder_remove_button.text = "REMOVE SELECTED"
+		else:
+			builder_remove_button.text = "REMOVE LAST"
+		builder_place_label.text = "DRAG A LIBRARY BLOCK TO BUILD  •  DRAG SHIP BLOCKS TO MOVE" if selected_placement_index < 0 else "EDITING %s  •  DRAG TO MOVE, ROTATE, OR CHANGE DEPTH" % title
 		builder_remove_button.disabled = part_placements.is_empty()
 		builder_clear_button.disabled = part_placements.is_empty()
 
@@ -794,6 +853,7 @@ func _on_shop_part_pressed(part_id: String) -> void:
 		shop_status.text = "%s UNLOCKED  •  SELECT IT, THEN PLACE IT" % item.title
 		_save_profile()
 	selected_part_id = part_id
+	selected_placement_index = -1
 	_update_shop_buttons()
 
 
@@ -808,66 +868,74 @@ func _place_selected_block(screen_position: Vector2) -> void:
 	if selected_part_id.is_empty() or not owned_parts.has(selected_part_id):
 		shop_status.text = "SELECT OR UNLOCK A BLOCK FIRST"
 		return
-	if part_placements.size() >= 3:
-		shop_status.text = "MAX 3 LIBRARY BLOCKS  •  REMOVE ONE TO MAKE ROOM"
+	if part_placements.size() >= MAX_PLACED_BLOCKS:
+		shop_status.text = "MAX %d BLOCKS  •  REMOVE ONE TO MAKE ROOM" % MAX_PLACED_BLOCKS
 		return
-	var viewport_size := get_viewport().get_visible_rect().size
-	var canvas_left := viewport_size.x * 0.65
-	var x := clampf(((screen_position.x - canvas_left) / maxf(viewport_size.x - canvas_left, 1.0) - 0.5) * 4.2, -2.4, 2.4)
-	var y_fraction := clampf((screen_position.y / viewport_size.y - 0.2) / 0.62, 0.0, 1.0)
-	var y := lerpf(1.55, -1.55, y_fraction)
-	var snapped := _find_magnetic_snap(Vector2(x, y), selected_part_id, placement_rotation)
+	var target := _screen_to_ship_position(screen_position, placement_depth)
+	var snapped := _snap_free_grid(target, selected_part_id, placement_rotation)
 	if snapped.x < -100.0:
-		shop_status.text = "NO OPEN MAGNET SOCKET NEARBY  •  TRY ANOTHER SPOT"
+		shop_status.text = "BLOCK OVERLAPS ANOTHER PART  •  DROP IN AN OPEN GRID CELL"
 		return
-	part_placements.append({"id": selected_part_id, "position": Vector3(snapped.x, snapped.y, -0.1), "rotation": placement_rotation})
+	part_placements.append({"id": selected_part_id, "position": Vector3(snapped.x, snapped.y, placement_depth), "rotation": placement_rotation})
+	selected_placement_index = part_placements.size() - 1
 	_sync_equipped_parts()
 	_rebuild_ship_mesh()
 	_save_profile()
-	shop_status.text = "%s SNAPPED INTO PLACE" % str(PARTS[selected_part_id].title)
+	shop_status.text = "%s PLACED ON BUILD GRID" % str(PARTS[selected_part_id].title)
 	_update_shop_buttons()
 
 
-func _find_magnetic_snap(target: Vector2, new_part_id: String, new_rotation: float) -> Vector2:
-	var new_size := _part_dimensions(new_part_id)
-	if int(round(absf(new_rotation) / (PI * 0.5))) % 2 == 1:
-		new_size = Vector2(new_size.y, new_size.x)
-	var candidates: Array[Vector2] = [
-		Vector2(-0.775 - new_size.x * 0.5 - 0.1, 0.0),
-		Vector2(0.775 + new_size.x * 0.5 + 0.1, 0.0),
-		Vector2(0.0, -0.4 - new_size.y * 0.5 - 0.1),
-		Vector2(0.0, 0.4 + new_size.y * 0.5 + 0.1),
-	]
-	for placement in part_placements:
+func _screen_to_ship_position(screen_position: Vector2, depth: float) -> Vector2:
+	var ray_origin := camera.project_ray_origin(screen_position)
+	var ray_direction := camera.project_ray_normal(screen_position)
+	var inverse := player.global_transform.affine_inverse()
+	var local_origin := inverse * ray_origin
+	var local_direction := inverse.basis * ray_direction
+	if absf(local_direction.z) < 0.0001:
+		return Vector2(-999.0, -999.0)
+	var distance := (depth - local_origin.z) / local_direction.z
+	if distance < 0.0:
+		return Vector2(-999.0, -999.0)
+	var local_point := local_origin + local_direction * distance
+	return Vector2(clampf(local_point.x, -4.0, 4.0), clampf(local_point.y, -3.0, 3.0))
+
+
+func _snap_free_grid(target: Vector2, part_id: String, rotation: float, ignore_index := -1) -> Vector2:
+	var grid_position := Vector2(round(target.x / BUILD_GRID), round(target.y / BUILD_GRID)) * BUILD_GRID
+	if absf(target.x) > 4.0 or absf(target.y) > 3.0:
+		return Vector2(-999.0, -999.0)
+	var part_size := _part_dimensions(part_id)
+	if int(round(absf(rotation) / (PI * 0.5))) % 2 == 1:
+		part_size = Vector2(part_size.y, part_size.x)
+	var candidate := Vector3(grid_position.x, grid_position.y, placement_depth)
+	var candidate_depth := _part_depth(part_id)
+	var body_size := Vector3(1.55, 0.8, 3.0)
+	if _boxes_overlap(candidate, Vector3(part_size.x, part_size.y, candidate_depth), Vector3(0.0, 0.0, 0.25), body_size):
+		return Vector2(-999.0, -999.0)
+	for index in range(part_placements.size()):
+		if index == ignore_index:
+			continue
+		var placement: Dictionary = part_placements[index]
 		var position: Vector3 = placement.get("position", Vector3.ZERO)
-		var extent := _part_dimensions(str(placement.get("id", "")))
-		var block_rotation := float(placement.get("rotation", 0.0))
-		if int(round(absf(block_rotation) / (PI * 0.5))) % 2 == 1:
-			extent = Vector2(extent.y, extent.x)
-		candidates.append(Vector2(position.x - extent.x * 0.5 - new_size.x * 0.5 - 0.1, position.y))
-		candidates.append(Vector2(position.x + extent.x * 0.5 + new_size.x * 0.5 + 0.1, position.y))
-		candidates.append(Vector2(position.x, position.y - extent.y * 0.5 - new_size.y * 0.5 - 0.1))
-		candidates.append(Vector2(position.x, position.y + extent.y * 0.5 + new_size.y * 0.5 + 0.1))
-	var best := Vector2(-999.0, -999.0)
-	var best_distance := 2.05
-	for candidate in candidates:
-		if absf(candidate.x) > 2.55 or absf(candidate.y) > 1.9:
-			continue
-		var occupied := absf(candidate.x) < (0.775 + new_size.x * 0.5 - 0.04) and absf(candidate.y) < (0.4 + new_size.y * 0.5 - 0.04)
-		for placement in part_placements:
-			var position: Vector3 = placement.get("position", Vector3.ZERO)
-			var extent := _part_dimensions(str(placement.get("id", "")))
-			if int(round(absf(float(placement.get("rotation", 0.0))) / (PI * 0.5))) % 2 == 1:
-				extent = Vector2(extent.y, extent.x)
-			if absf(candidate.x - position.x) < (new_size.x + extent.x) * 0.5 - 0.04 and absf(candidate.y - position.y) < (new_size.y + extent.y) * 0.5 - 0.04:
-				occupied = true
-		if occupied:
-			continue
-		var distance_to_target := candidate.distance_to(target)
-		if distance_to_target < best_distance:
-			best = candidate
-			best_distance = distance_to_target
-	return best
+		var other_id := str(placement.get("id", ""))
+		var other_size := _part_dimensions(other_id)
+		if int(round(absf(float(placement.get("rotation", 0.0))) / (PI * 0.5))) % 2 == 1:
+			other_size = Vector2(other_size.y, other_size.x)
+		if _boxes_overlap(candidate, Vector3(part_size.x, part_size.y, candidate_depth), position, Vector3(other_size.x, other_size.y, _part_depth(other_id))):
+			return Vector2(-999.0, -999.0)
+	return grid_position
+
+
+func _boxes_overlap(a: Vector3, a_size: Vector3, b: Vector3, b_size: Vector3) -> bool:
+	return absf(a.x - b.x) < (a_size.x + b_size.x) * 0.5 - 0.035 and absf(a.y - b.y) < (a_size.y + b_size.y) * 0.5 - 0.035 and absf(a.z - b.z) < (a_size.z + b_size.z) * 0.5 - 0.035
+
+
+func _part_depth(part_id: String) -> float:
+	match part_id:
+		"splitter_nose", "wing_pack", "side_pods": return 0.72
+		"fin_set", "boost_core", "armor": return 0.62
+		"twin_cannon": return 0.82
+	return 0.72
 
 
 func _part_dimensions(part_id: String) -> Vector2:
@@ -886,8 +954,30 @@ func _part_under_pointer(screen_position: Vector2) -> String:
 	for part_id in shop_buttons.keys():
 		var button: Button = shop_buttons[part_id]
 		if owned_parts.has(part_id) and button.visible and button.get_global_rect().has_point(screen_position):
-			return str(part_id)
+			return "part:" + str(part_id)
+	if screen_position.x > get_viewport().get_visible_rect().size.x * 0.65:
+		var picked := _pick_placed_block(screen_position)
+		if picked >= 0:
+			selected_placement_index = picked
+			selected_part_id = str(part_placements[picked].get("id", ""))
+			var picked_position: Vector3 = part_placements[picked].get("position", Vector3.ZERO)
+			placement_depth = picked_position.z
+			return "move:%d" % picked
 	return ""
+
+
+func _pick_placed_block(screen_position: Vector2) -> int:
+	var closest_index := -1
+	var closest_distance := 48.0
+	for index in range(part_placements.size()):
+		var placement: Dictionary = part_placements[index]
+		var local_position: Vector3 = placement.get("position", Vector3.ZERO)
+		var screen_point := camera.unproject_position(player.to_global(local_position))
+		var pointer_distance := screen_point.distance_to(screen_position)
+		if pointer_distance < closest_distance:
+			closest_distance = pointer_distance
+			closest_index = index
+	return closest_index
 
 
 func _move_builder_drag(screen_position: Vector2) -> void:
@@ -895,7 +985,14 @@ func _move_builder_drag(screen_position: Vector2) -> void:
 		return
 	if not builder_dragging and screen_position.distance_to(builder_pointer_start) >= 12.0:
 		builder_dragging = true
-		selected_part_id = builder_drag_source
+		if builder_drag_source.begins_with("part:"):
+			selected_part_id = builder_drag_source.trim_prefix("part:")
+			selected_placement_index = -1
+		elif builder_drag_source.begins_with("move:"):
+			var index := int(builder_drag_source.trim_prefix("move:"))
+			if index >= 0 and index < part_placements.size():
+				selected_placement_index = index
+				selected_part_id = str(part_placements[index].get("id", ""))
 		var item: Dictionary = PARTS.get(selected_part_id, {})
 		var preview_path := str(item.get("preview", ""))
 		builder_drag_ghost.texture = load(preview_path) if ResourceLoader.exists(preview_path) else null
@@ -907,43 +1004,111 @@ func _move_builder_drag(screen_position: Vector2) -> void:
 
 func _finish_builder_drag(screen_position: Vector2) -> bool:
 	var did_drag := builder_dragging
+	var source := builder_drag_source
+	if not source.is_empty() and source.begins_with("move:") and not did_drag:
+		_update_shop_buttons()
+		return true
 	if did_drag:
-		selected_part_id = builder_drag_source
 		builder_drag_ghost.visible = false
 		var viewport_size := get_viewport().get_visible_rect().size
 		if screen_position.x > viewport_size.x * 0.65 and screen_position.y > viewport_size.y * 0.22 and screen_position.y < viewport_size.y * 0.84:
-			_place_selected_block(screen_position)
+			if source.begins_with("move:"):
+				_move_placed_block(int(source.trim_prefix("move:")), screen_position)
+			elif source.begins_with("part:"):
+				selected_part_id = source.trim_prefix("part:")
+				selected_placement_index = -1
+				_place_selected_block(screen_position)
 		else:
 			_update_shop_buttons()
 	return did_drag
+
+
+func _move_placed_block(index: int, screen_position: Vector2) -> void:
+	if index < 0 or index >= part_placements.size():
+		return
+	var placement: Dictionary = part_placements[index]
+	var part_id := str(placement.get("id", ""))
+	var current_position: Vector3 = placement.get("position", Vector3.ZERO)
+	placement_depth = current_position.z
+	var target := _screen_to_ship_position(screen_position, placement_depth)
+	var snapped := _snap_free_grid(target, part_id, float(placement.get("rotation", 0.0)), index)
+	if snapped.x < -100.0:
+		shop_status.text = "BLOCK OVERLAPS ANOTHER PART  •  TRY AN OPEN GRID CELL"
+		_update_shop_buttons()
+		return
+	part_placements[index].position = Vector3(snapped.x, snapped.y, placement_depth)
+	selected_placement_index = index
+	_rebuild_ship_mesh()
+	_save_profile()
+	shop_status.text = "%s MOVED ON BUILD GRID" % str(PARTS.get(part_id, {}).get("title", part_id))
+	_update_shop_buttons()
 
 
 func _sync_equipped_parts() -> void:
 	equipped_parts = ["core"]
 	for placement in part_placements:
 		var part_id := str(placement.get("id", ""))
-		if PARTS.has(part_id) and equipped_parts.size() < 4:
+		if PARTS.has(part_id) and not equipped_parts.has(part_id):
 			equipped_parts.append(part_id)
 
 
 func _rotate_next_block() -> void:
-	placement_rotation = fposmod(placement_rotation + PI * 0.5, TAU)
-	shop_status.text = "NEXT BLOCK ROTATION  •  %d°" % int(round(rad_to_deg(placement_rotation)))
+	if selected_placement_index >= 0 and selected_placement_index < part_placements.size():
+		var old_rotation := float(part_placements[selected_placement_index].get("rotation", 0.0))
+		var next_rotation := fposmod(old_rotation + PI * 0.5, TAU)
+		var position: Vector3 = part_placements[selected_placement_index].get("position", Vector3.ZERO)
+		placement_depth = position.z
+		if _snap_free_grid(Vector2(position.x, position.y), str(part_placements[selected_placement_index].get("id", "")), next_rotation, selected_placement_index).x < -100.0:
+			shop_status.text = "ROTATION WOULD OVERLAP ANOTHER BLOCK"
+			return
+		part_placements[selected_placement_index].rotation = next_rotation
+		_rebuild_ship_mesh()
+		_save_profile()
+		shop_status.text = "SELECTED BLOCK ROTATED 90°"
+	else:
+		placement_rotation = fposmod(placement_rotation + PI * 0.5, TAU)
+		shop_status.text = "NEXT BLOCK ROTATION  •  %d°" % int(round(rad_to_deg(placement_rotation)))
+	_update_shop_buttons()
 
 
-func _remove_last_block() -> void:
+func _remove_selected_block() -> void:
 	if part_placements.is_empty():
 		return
-	part_placements.pop_back()
+	var remove_index := selected_placement_index if selected_placement_index >= 0 and selected_placement_index < part_placements.size() else part_placements.size() - 1
+	var removed: Dictionary = part_placements[remove_index]
+	part_placements.remove_at(remove_index)
+	selected_placement_index = -1
+	selected_part_id = str(removed.get("id", ""))
 	_sync_equipped_parts()
 	_rebuild_ship_mesh()
 	_save_profile()
-	shop_status.text = "LAST BLOCK REMOVED"
+	shop_status.text = "%s REMOVED" % str(PARTS.get(selected_part_id, {}).get("title", selected_part_id))
+	_update_shop_buttons()
+
+
+func _adjust_block_depth(change: float) -> void:
+	if selected_placement_index >= 0 and selected_placement_index < part_placements.size():
+		var current: Vector3 = part_placements[selected_placement_index].get("position", Vector3.ZERO)
+		var target_depth := clampf(round((current.z + change) / BUILD_GRID) * BUILD_GRID, -2.0, 2.0)
+		placement_depth = target_depth
+		if _snap_free_grid(Vector2(current.x, current.y), str(part_placements[selected_placement_index].get("id", "")), float(part_placements[selected_placement_index].get("rotation", 0.0)), selected_placement_index).x < -100.0:
+			shop_status.text = "DEPTH CHANGE WOULD OVERLAP ANOTHER PART"
+			return
+		current.z = target_depth
+		part_placements[selected_placement_index].position = current
+		placement_depth = current.z
+		_rebuild_ship_mesh()
+		_save_profile()
+		shop_status.text = "BLOCK DEPTH  •  %.1f" % current.z
+	else:
+		placement_depth = clampf(round((placement_depth + change) / BUILD_GRID) * BUILD_GRID, -2.0, 2.0)
+		shop_status.text = "PLACEMENT DEPTH  •  %.1f" % placement_depth
 	_update_shop_buttons()
 
 
 func _clear_placed_blocks() -> void:
 	part_placements.clear()
+	selected_placement_index = -1
 	_sync_equipped_parts()
 	_rebuild_ship_mesh()
 	_save_profile()
@@ -989,6 +1154,7 @@ func _start_run() -> void:
 	player.rotation = Vector3.ZERO
 	camera.fov = 78.0
 	player.visible = true
+	build_grid_root.visible = false
 	_rebuild_ship_mesh()
 	while next_segment_distance < 190.0:
 		_spawn_segment(-next_segment_distance)
@@ -1043,6 +1209,7 @@ func _continue_run() -> void:
 	player.position = Vector3.ZERO
 	player.rotation = Vector3.ZERO
 	player.visible = true
+	build_grid_root.visible = false
 	for item in course_objects:
 		if is_instance_valid(item):
 			item.queue_free()
@@ -1422,9 +1589,11 @@ func _end_run() -> void:
 	stage_break_panel.visible = false
 	stage_break_shade.visible = false
 	player.visible = true
+	build_grid_root.visible = false
 	high_score = maxi(high_score, run_score)
 	equipped_parts = ["core"]
 	part_placements.clear()
+	selected_placement_index = -1
 	_save_profile()
 	var summary: Label = game_over_panel.get_meta("summary")
 	summary.text = "SCORE  %d\nUNBANKED SALVAGE LOST  %d\nBEST FLIGHT  %d\nBANKED SCRAP  %d" % [run_score, run_scrap, high_score, total_scrap]
@@ -1566,7 +1735,7 @@ func _load_profile() -> void:
 	var saved_placements = config.get_value("pilot", "part_placements", [])
 	part_placements.clear()
 	for placement in saved_placements:
-		if placement is Dictionary and PARTS.has(str(placement.get("id", ""))) and part_placements.size() < 3:
+		if placement is Dictionary and PARTS.has(str(placement.get("id", ""))) and part_placements.size() < MAX_PLACED_BLOCKS:
 			part_placements.append({"id": str(placement.get("id", "")), "position": placement.get("position", Vector3.ZERO), "rotation": float(placement.get("rotation", 0.0))})
 	if part_placements.is_empty():
 		var legacy_positions := [Vector3(-1.0, 0.0, -0.1), Vector3(1.0, 0.0, -0.1), Vector3(0.0, 0.9, -0.1)]
