@@ -6,15 +6,16 @@ A standalone, low-poly space-flight arcade game built with Godot. Courses are as
 
 - Landscape flight view with responsive expanded layout for wider Android screens.
 - Expanded free-flight steering range so you can sweep across the open course instead of staying near the center.
-- Runs are divided into short flight stages assembled from block gates, debris fields, salvage paths, and drone encounters.
+- Runs are divided into increasingly long flight stages assembled from block gates, debris fields, salvage paths, and drone encounters.
 - Drag to steer; hold **FIRE** to shoot; tap **BOOST** to surge. Desktop testing also supports mouse drag, Space, and Shift.
 - Three lives per run. A rare life cache has a random 20% chance to appear in each run.
-- Each stage ends at a decision pause: bank the unbanked salvage and return to the hangar, or continue with the haul at risk for a higher multiplier. Continuing raises the multiplier by 0.25 and slightly increases speed and obstacle difficulty.
+- Each stage ends at a decision pause: bank the unbanked salvage and return to the hangar, or continue with the haul at risk for a higher multiplier. The first leg is 600m; each continued stage grows by 15% up to 1,800m, while course segments pack closer and debris/walls add hazards over time. Continuing raises the multiplier by 0.25 and speed by 1.2 up to the run's speed cap. The pause displays the completed and upcoming leg lengths before the choice.
 - Only cashed-out salvage becomes banked scrap. Losing all lives forfeits the unbanked haul; unlocked ship blocks and previously banked scrap persist.
 - Six compressed scenic backgrounds each have five camera crops, giving 30 reusable space views without 30 full-size textures. A new view is selected for every run and continued stage.
-- Modular parts can be unlocked with banked scrap, then dragged from the library onto the ship in the separate builder window. Blocks snap to nearby magnetic sockets on the core hull or other placed blocks. Rotate the next block, remove the last placement, or clear the build. The live ship preview can still be orbited by dragging.
+- Build the ship from a small cockpit core and individually placed hull cubes, nose wedges, a fuselage, cockpit shells, and flat body plates. Wing sets, fins, three engine types, four cannon types, shield emitters/plates, and armor blocks add visual and flight/combat differences.
+- Drag library cards onto the magnetic build grid, then drag placed blocks to move them. Rotate, change depth, and remove individual blocks. The ship carries 8 base mass and has a 50 mass limit; each library card shows its block mass, overweight additions are rejected, and heavier builds turn and boost more slowly. Builders can place up to 20 blocks and orbit the preview.
 - The flight backdrop uses a full-screen scenic image layer with 30 reusable crop views, keeping it visible on Android even if the 3D backdrop plane fails to render.
-- Blender-authored low-poly ship modules and three asteroid models used in the generated flight corridors, with the editable source scene and generation script included.
+- Ship blocks use editable flat-color primitive meshes; three Blender-authored asteroid models furnish the flight corridors, with the source scene and asset-generation script included.
 - High-resolution deep-space photo backdrops frame each flight stage; detailed, smooth-shaded asteroid hazards contrast with the intentionally blocky low-poly ship.
 
 This is an early playable build. Flight feel, collision spacing, and touch sizing are ready for device feedback and tuning.
