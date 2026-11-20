@@ -17,12 +17,68 @@ class FlightRadar extends Control:
 			draw_circle(center + offset * radius * 0.78, 4.0, blip.tint)
 		draw_colored_polygon(PackedVector2Array([center + Vector2(0, -8), center + Vector2(-5, 6), center + Vector2(0, 3), center + Vector2(5, 6)]), Color(1.0, 0.91, 0.45))
 
+class PartPreview extends Control:
+	var part_id := ""
+	var part_shape := "cube"
+	var tint := Color(0.35, 0.75, 0.96)
+
+	func _draw() -> void:
+		var center := size * 0.5
+		var unit := minf(size.x, size.y) * 0.34
+		var dark := tint.darkened(0.45)
+		var light := tint.lightened(0.2)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.025, 0.065, 0.12, 0.92))
+		draw_line(Vector2(center.x - unit * 1.7, center.y + unit * 0.85), Vector2(center.x + unit * 1.7, center.y + unit * 0.85), Color(0.12, 0.42, 0.62, 0.48), 2.0)
+		match part_shape:
+			"wedge":
+				draw_colored_polygon(PackedVector2Array([center + Vector2(-unit, unit * 0.45), center + Vector2(0, -unit), center + Vector2(unit, unit * 0.45)]), light)
+				draw_line(center + Vector2(-unit, unit * 0.45), center + Vector2(unit, unit * 0.45), dark, 5.0)
+			"engine":
+				draw_rect(Rect2(center + Vector2(-unit * 0.55, -unit), Vector2(unit * 1.1, unit * 1.55)), tint)
+				draw_circle(center + Vector2(0, unit * 0.72), unit * 0.46, Color(0.25, 0.85, 1.0))
+				draw_circle(center + Vector2(0, unit * 0.72), unit * 0.23, Color(0.85, 0.98, 1.0))
+			"cannon":
+				draw_rect(Rect2(center + Vector2(-unit * 0.38, -unit * 1.15), Vector2(unit * 0.76, unit * 1.8)), tint)
+				draw_rect(Rect2(center + Vector2(-unit * 0.2, -unit * 1.65), Vector2(unit * 0.4, unit * 0.72)), light)
+			"cannons", "scatter", "heavy_cannon":
+				for barrel in range(3 if part_shape == "scatter" else 2):
+					var offset_x := (float(barrel) - 1.0) * unit * 0.55 if part_shape == "scatter" else (float(barrel) - 0.5) * unit * 0.8
+					draw_rect(Rect2(center + Vector2(offset_x - unit * 0.18, -unit * 1.2), Vector2(unit * 0.36, unit * 1.8)), tint)
+					draw_rect(Rect2(center + Vector2(offset_x - unit * 0.1, -unit * 1.7), Vector2(unit * 0.2, unit * 0.72)), light)
+			"pods":
+				for side in [-1.0, 1.0]:
+					draw_rect(Rect2(center + Vector2(side * unit * 0.72 - unit * 0.25, -unit * 0.65), Vector2(unit * 0.5, unit * 1.3)), tint)
+					draw_circle(center + Vector2(side * unit * 0.72, unit * 0.62), unit * 0.22, Color(0.3, 0.88, 1.0))
+			"wings":
+				draw_colored_polygon(PackedVector2Array([center + Vector2(-unit * 1.8, 0), center + Vector2(-unit * 0.55, -unit * 0.3), center + Vector2(-unit * 0.4, unit * 0.3)]), tint)
+				draw_colored_polygon(PackedVector2Array([center + Vector2(unit * 1.8, 0), center + Vector2(unit * 0.55, -unit * 0.3), center + Vector2(unit * 0.4, unit * 0.3)]), light)
+			"fins":
+				draw_colored_polygon(PackedVector2Array([center + Vector2(-unit * 1.1, unit * 0.65), center + Vector2(-unit * 0.55, -unit * 0.95), center + Vector2(-unit * 0.1, unit * 0.65)]), tint)
+				draw_colored_polygon(PackedVector2Array([center + Vector2(unit * 1.1, unit * 0.65), center + Vector2(unit * 0.55, -unit * 0.95), center + Vector2(unit * 0.1, unit * 0.65)]), light)
+			"cockpit":
+				draw_colored_polygon(PackedVector2Array([center + Vector2(-unit * 0.75, unit * 0.75), center + Vector2(-unit * 0.48, -unit * 0.55), center + Vector2(0, -unit), center + Vector2(unit * 0.48, -unit * 0.55), center + Vector2(unit * 0.75, unit * 0.75)]), tint)
+				draw_colored_polygon(PackedVector2Array([center + Vector2(-unit * 0.38, -unit * 0.3), center + Vector2(0, -unit * 0.76), center + Vector2(unit * 0.38, -unit * 0.3)]), Color(0.24, 0.84, 1.0))
+			"plate", "shield_plate":
+				draw_rect(Rect2(center + Vector2(-unit * 1.15, -unit * 0.25), Vector2(unit * 2.3, unit * 0.5)), tint)
+				draw_line(center + Vector2(-unit * 0.72, 0), center + Vector2(unit * 0.72, 0), Color(0.35, 0.86, 1.0), 4.0)
+			"shield":
+				draw_arc(center, unit * 1.18, PI * 1.08, PI * 1.92, 32, Color(0.28, 0.88, 1.0), 7.0, true)
+				draw_circle(center, unit * 0.32, tint)
+			_:
+				var points := PackedVector2Array([center + Vector2(-unit, -unit * 0.65), center + Vector2(0, -unit), center + Vector2(unit, -unit * 0.65), center + Vector2(unit, unit * 0.65), center + Vector2(0, unit), center + Vector2(-unit, unit * 0.65)])
+				draw_colored_polygon(points, tint)
+				draw_line(points[0], points[3], light, 2.0)
+				draw_line(points[1], points[4], dark, 2.0)
+
 enum ScreenState { HANGAR, BUILDER, RUN, STAGE_BREAK, GAME_OVER }
 
 const PROFILE_PATH := "user://pilot_profile.cfg"
-const STAGE_DISTANCE := 360.0
+const FIRST_STAGE_DISTANCE := 600.0
+const MAX_STAGE_DISTANCE := 1800.0
 const STAGE_MULTIPLIER_STEP := 0.25
-const MAX_PLACED_BLOCKS := 12
+const MAX_PLACED_BLOCKS := 20
+const SHIP_CORE_MASS := 8.0
+const SHIP_WEIGHT_LIMIT := 50.0
 const BUILD_GRID := 0.5
 const BACKGROUND_ANGLES := 5
 const SPACE_BACKGROUNDS := [
@@ -34,16 +90,27 @@ const SPACE_BACKGROUNDS := [
 	"res://art/backgrounds/gold.jpg",
 ]
 const PARTS := {
-	"splitter_nose": {"title": "SPLITTER NOSE", "cost": 60, "hint": "SHARP FRONT BLOCK", "category": "HULL", "preview": "res://art/library/previews/splitter_nose.png"},
-	"wing_pack": {"title": "AERO WING PAIR", "cost": 55, "hint": "QUICKER HANDLING", "category": "WINGS", "preview": "res://art/library/previews/wing_pack.png"},
-	"fin_set": {"title": "TAIL FIN SET", "cost": 45, "hint": "TWIN STABILITY FINS", "category": "WINGS", "preview": "res://art/library/previews/fin_set.png"},
-	"boost_core": {"title": "PULSE ENGINE", "cost": 125, "hint": "LONGER BOOST", "category": "ENGINES", "preview": "res://art/library/previews/boost_core.png"},
-	"side_pods": {"title": "SIDE THRUSTER PODS", "cost": 80, "hint": "SIDE ENGINE PAIR", "category": "ENGINES", "preview": "res://art/library/previews/side_pods.png"},
-	"twin_cannon": {"title": "TWIN CANNONS", "cost": 85, "hint": "FASTER FIRE", "category": "WEAPONS", "preview": "res://art/library/previews/twin_cannon.png"},
-	"armor": {"title": "ARMOR PLATE", "cost": 100, "hint": "ONE HIT BUFFER", "category": "ARMOR", "preview": "res://art/library/previews/armor.png"},
+	"hull_cube": {"title": "HULL CUBE", "cost": 0, "hint": "BASIC BODY SHAPE", "category": "HULL", "shape": "cube", "dims": [0.9, 0.9, 0.9], "mass": 3.0},
+	"hull_wedge": {"title": "NOSE WEDGE", "cost": 0, "hint": "ANGLED BODY SHAPE", "category": "HULL", "shape": "wedge", "dims": [1.0, 0.9, 1.2], "mass": 3.5},
+	"hull_fuselage": {"title": "LONG FUSELAGE", "cost": 35, "hint": "STRETCHED BODY BLOCK", "category": "HULL", "shape": "cube", "dims": [1.2, 0.8, 1.5], "mass": 5.0},
+	"cockpit_shell": {"title": "COCKPIT SHELL", "cost": 45, "hint": "CANOPY BODY BLOCK", "category": "HULL", "shape": "cockpit", "dims": [1.0, 0.9, 1.2], "mass": 4.5},
+	"hull_plate": {"title": "FLAT HULL PLATE", "cost": 20, "hint": "THIN BODY PANEL", "category": "HULL", "shape": "plate", "dims": [1.4, 0.22, 1.0], "mass": 2.5},
+	"splitter_nose": {"title": "SPLITTER NOSE", "cost": 60, "hint": "SHARP FRONT BLOCK", "category": "HULL", "shape": "wedge", "dims": [1.0, 0.42, 0.9], "mass": 3.0, "preview": "res://art/library/previews/splitter_nose.png"},
+	"wing_pack": {"title": "AERO WING PAIR", "cost": 55, "hint": "QUICKER HANDLING", "category": "WINGS", "shape": "wings", "dims": [1.8, 0.28, 0.75], "mass": 3.0, "handling": 0.15, "preview": "res://art/library/previews/wing_pack.png"},
+	"fin_set": {"title": "TAIL FIN SET", "cost": 45, "hint": "TWIN STABILITY FINS", "category": "WINGS", "shape": "fins", "dims": [1.0, 1.1, 0.65], "mass": 2.5, "handling": 0.1, "preview": "res://art/library/previews/fin_set.png"},
+	"boost_core": {"title": "PULSE ENGINE", "cost": 125, "hint": "LONGER BOOST", "category": "ENGINES", "shape": "engine", "dims": [0.85, 0.85, 1.0], "mass": 5.0, "boost": 2.0, "boost_time": 0.65, "preview": "res://art/library/previews/boost_core.png"},
+	"side_pods": {"title": "SIDE THRUSTER PODS", "cost": 80, "hint": "SIDE ENGINE PAIR", "category": "ENGINES", "shape": "pods", "dims": [1.5, 0.72, 0.9], "mass": 6.0, "boost": 1.5, "preview": "res://art/library/previews/side_pods.png"},
+	"ion_booster": {"title": "ION BOOSTER", "cost": 150, "hint": "HIGH-THRUST ENGINE", "category": "ENGINES", "shape": "engine", "dims": [1.0, 1.0, 1.25], "mass": 8.0, "boost": 5.0, "boost_time": 0.35},
+	"pulse_cannon": {"title": "PULSE CANNON", "cost": 70, "hint": "QUICK SINGLE SHOTS", "category": "WEAPONS", "shape": "cannon", "dims": [0.42, 0.42, 0.9], "mass": 3.0, "fire_rate": 0.04},
+	"twin_cannon": {"title": "TWIN CANNONS", "cost": 85, "hint": "PAIRED FIRE", "category": "WEAPONS", "shape": "cannons", "dims": [1.0, 0.48, 0.85], "mass": 5.0, "fire_rate": 0.07, "preview": "res://art/library/previews/twin_cannon.png"},
+	"heavy_cannon": {"title": "HEAVY CANNON", "cost": 135, "hint": "WIDE, SLOW BLAST", "category": "WEAPONS", "shape": "heavy_cannon", "dims": [0.65, 0.65, 1.15], "mass": 8.0, "fire_rate": -0.1},
+	"scatter_cannon": {"title": "SCATTER CANNON", "cost": 110, "hint": "THREE-BOLT BURST", "category": "WEAPONS", "shape": "scatter", "dims": [1.2, 0.6, 0.85], "mass": 6.0, "fire_rate": -0.025},
+	"shield_emitter": {"title": "SHIELD EMITTER", "cost": 120, "hint": "TWO EXTRA HIT BUFFERS", "category": "SHIELDS", "shape": "shield", "dims": [0.9, 0.9, 0.65], "mass": 7.0, "armor": 2},
+	"shield_plate": {"title": "SHIELD PLATE", "cost": 75, "hint": "ONE EXTRA HIT BUFFER", "category": "SHIELDS", "shape": "shield_plate", "dims": [1.2, 0.24, 0.8], "mass": 4.0, "armor": 1},
+	"armor": {"title": "ARMOR PLATE", "cost": 100, "hint": "ONE HIT BUFFER", "category": "ARMOR", "shape": "plate", "dims": [1.4, 0.24, 1.0], "mass": 5.0, "armor": 1, "preview": "res://art/library/previews/armor.png"},
 }
 
-const PART_CATEGORIES := ["ALL", "HULL", "WINGS", "ENGINES", "WEAPONS", "ARMOR"]
+const PART_CATEGORIES := ["ALL", "HULL", "WINGS", "ENGINES", "WEAPONS", "SHIELDS", "ARMOR"]
 const ASTEROID_VARIANTS := [
 	"res://art/library/models/asteroid_1.glb",
 	"res://art/library/models/asteroid_2.glb",
@@ -123,6 +190,11 @@ var steering_target := Vector2.ZERO
 var steering_rate := 9.0
 var invulnerability := 0.0
 var armor_charge := 0
+var ship_handling_bonus := 0.0
+var ship_boost_power := 0.0
+var ship_boost_time_bonus := 0.0
+var ship_fire_rate_bonus := 0.0
+var ship_armor_capacity := 0
 var firing := false
 var fire_cooldown := 0.0
 var boost_time := 0.0
@@ -268,7 +340,7 @@ func _build_ship() -> void:
 	player.collision_mask = 0
 	var body_shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
-	box_shape.size = Vector3(2.3, 1.35, 3.3)
+	box_shape.size = Vector3(1.7, 1.3, 2.5)
 	body_shape.shape = box_shape
 	player.add_child(body_shape)
 	_build_ship_grid()
@@ -307,26 +379,21 @@ func _build_ship_grid() -> void:
 func _rebuild_ship_mesh() -> void:
 	engine_flames.clear()
 	for child in player.get_children():
-		if child is MeshInstance3D:
+		if child.get_meta("ship_visual", false):
 			child.queue_free()
-	var hull := _make_block(Vector3(0.0, 0.0, 0.25), Vector3(1.55, 0.8, 3.0), Color(0.81, 0.23, 0.25))
-	player.add_child(hull)
-	var nose := _make_block(Vector3(0.0, 0.04, -1.55), Vector3(1.08, 0.53, 1.0), Color(1.0, 0.73, 0.23))
-	player.add_child(nose)
-	var cockpit := _make_block(Vector3(0.0, 0.55, -0.25), Vector3(0.72, 0.42, 1.0), Color(0.11, 0.25, 0.48))
-	player.add_child(cockpit)
-	for side in [-1.0, 1.0]:
-		var wing := _make_block(Vector3(side * 1.12, 0.03, -0.35), Vector3(1.1, 0.2, 1.55), Color(0.86, 0.92, 1.0))
-		player.add_child(wing)
-		var engine := _make_block(Vector3(side * 0.92, -0.08, 1.05), Vector3(0.48, 0.58, 1.45), Color(0.27, 0.38, 0.58))
-		player.add_child(engine)
-		var glow := _make_block(Vector3(side * 0.92, -0.08, 1.83), Vector3(0.28, 0.3, 0.15), Color(0.13, 0.78, 1.0), true)
-		player.add_child(glow)
-		var flame := _make_block(Vector3(side * 0.92, -0.08, 2.18), Vector3(0.22, 0.24, 0.72), Color(0.24, 0.62, 1.0), true)
-		player.add_child(flame)
-		engine_flames.append(flame)
-	var center_glow := _make_block(Vector3(0.0, 0.0, 1.62), Vector3(0.34, 0.28, 0.2), Color(0.96, 0.37, 1.0), true)
-	player.add_child(center_glow)
+	var core := _make_block(Vector3(0.0, 0.0, 0.0), Vector3(0.85, 0.7, 1.3), Color(0.36, 0.24, 0.42))
+	core.set_meta("ship_visual", true)
+	player.add_child(core)
+	var canopy := _make_block(Vector3(0.0, 0.39, -0.12), Vector3(0.48, 0.18, 0.55), Color(0.15, 0.72, 0.94), true)
+	canopy.set_meta("ship_visual", true)
+	player.add_child(canopy)
+	var base_nozzle := _make_block(Vector3(0.0, 0.0, 0.76), Vector3(0.38, 0.34, 0.18), Color(0.2, 0.42, 0.58))
+	base_nozzle.set_meta("ship_visual", true)
+	player.add_child(base_nozzle)
+	var flame := _make_block(Vector3(0.0, 0.0, 1.1), Vector3(0.26, 0.24, 0.48), Color(0.24, 0.62, 1.0), true)
+	flame.set_meta("ship_visual", true)
+	player.add_child(flame)
+	engine_flames.append(flame)
 	for placement in part_placements:
 		var part_id := str(placement.get("id", ""))
 		if not PARTS.has(part_id):
@@ -334,40 +401,115 @@ func _rebuild_ship_mesh() -> void:
 		var block := _make_placed_part(part_id)
 		block.position = placement.get("position", Vector3.ZERO)
 		block.rotation.z = float(placement.get("rotation", 0.0))
+		block.set_meta("ship_visual", true)
 		if part_placements.find(placement) == selected_placement_index:
-			var selected_material := block.material_override as StandardMaterial3D
-			selected_material.emission_enabled = true
-			selected_material.emission = Color(0.1, 0.62, 1.0)
-			selected_material.emission_energy_multiplier = 0.55
+			for mesh_node in block.find_children("*", "MeshInstance3D", true, false):
+				var mesh_instance := mesh_node as MeshInstance3D
+				var selected_material := mesh_instance.material_override as StandardMaterial3D
+				if selected_material:
+					selected_material.emission_enabled = true
+					selected_material.emission = Color(0.1, 0.62, 1.0)
+					selected_material.emission_energy_multiplier = 0.55
 		player.add_child(block)
 
 
-func _make_placed_part(part_id: String) -> MeshInstance3D:
-	var dimensions := Vector3(0.8, 0.48, 0.72)
-	var tint := Color(0.9, 0.45, 0.28)
-	match part_id:
-		"splitter_nose":
-			dimensions = Vector3(0.92, 0.34, 0.7)
-			tint = Color(0.95, 0.88, 0.68)
-		"wing_pack":
-			dimensions = Vector3(1.0, 0.2, 0.62)
-			tint = Color(0.94, 0.39, 0.24)
-		"fin_set":
-			dimensions = Vector3(0.28, 0.76, 0.5)
-			tint = Color(0.98, 0.59, 0.27)
-		"boost_core":
-			dimensions = Vector3(0.52, 0.42, 0.62)
-			tint = Color(0.42, 0.32, 0.96)
-		"side_pods":
-			dimensions = Vector3(0.48, 0.52, 0.78)
-			tint = Color(0.18, 0.42, 0.72)
-		"twin_cannon":
-			dimensions = Vector3(0.24, 0.24, 0.82)
-			tint = Color(1.0, 0.64, 0.23)
-		"armor":
-			dimensions = Vector3(0.92, 0.22, 0.68)
-			tint = Color(0.88, 0.3, 0.23)
-	return _make_block(Vector3.ZERO, dimensions, tint)
+func _make_placed_part(part_id: String) -> Node3D:
+	var root := Node3D.new()
+	root.name = str(PARTS[part_id].title).replace(" ", "")
+	var dims := _part_dim_vector(part_id)
+	var tint := _part_tint(part_id)
+	match str(PARTS[part_id].shape):
+		"wedge":
+			_add_part_mesh(root, _make_wedge_mesh(dims), Vector3.ZERO, tint)
+		"cockpit":
+			_add_part_box(root, Vector3(dims.x, dims.y * 0.58, dims.z), Vector3(0.0, -dims.y * 0.12, 0.0), tint)
+			var canopy_mesh := SphereMesh.new()
+			canopy_mesh.radius = dims.x * 0.34
+			canopy_mesh.height = dims.y * 0.56
+			_add_part_mesh(root, canopy_mesh, Vector3(0.0, dims.y * 0.32, -dims.z * 0.04), Color(0.12, 0.72, 0.94), true, Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.62, 0.78))
+		"plate", "shield_plate":
+			_add_part_box(root, dims, Vector3.ZERO, tint)
+			_add_part_box(root, Vector3(dims.x * 0.68, 0.045, dims.z * 0.12), Vector3(0.0, dims.y * 0.52, 0.0), Color(0.35, 0.86, 1.0), true)
+		"wings":
+			for side in [-1.0, 1.0]:
+				_add_part_box(root, Vector3(dims.x * 0.48, dims.y, dims.z), Vector3(side * dims.x * 0.26, 0.0, 0.0), tint)
+		"fins":
+			for side in [-1.0, 1.0]:
+				_add_part_box(root, Vector3(dims.x * 0.24, dims.y, dims.z), Vector3(side * dims.x * 0.34, 0.0, 0.0), tint)
+		"engine":
+			_add_engine_visual(root, dims, tint, Vector3.ZERO)
+		"pods":
+			for side in [-1.0, 1.0]:
+				_add_engine_visual(root, Vector3(dims.x * 0.46, dims.y, dims.z), tint, Vector3(side * dims.x * 0.25, 0.0, 0.0))
+		"cannon":
+			_add_cannon_visual(root, dims, tint, Vector3.ZERO, 1.0)
+		"cannons":
+			for side in [-1.0, 1.0]:
+				_add_cannon_visual(root, Vector3(dims.x * 0.42, dims.y, dims.z), tint, Vector3(side * dims.x * 0.25, 0.0, 0.0), 0.72)
+		"heavy_cannon":
+			_add_cannon_visual(root, dims, tint, Vector3.ZERO, 1.35)
+		"scatter":
+			for side in [-1.0, 0.0, 1.0]:
+				_add_cannon_visual(root, Vector3(dims.x * 0.26, dims.y * 0.68, dims.z * 0.86), tint, Vector3(side * dims.x * 0.29, 0.0, 0.0), 0.68)
+		"shield":
+			_add_part_box(root, Vector3(dims.x * 0.68, dims.y * 0.62, dims.z * 0.62), Vector3.ZERO, Color(0.18, 0.48, 0.72))
+			var shield_mesh := SphereMesh.new()
+			shield_mesh.radius = 0.52
+			shield_mesh.height = 0.88
+			_add_part_mesh(root, shield_mesh, Vector3(0.0, 0.08, -0.02), Color(0.2, 0.82, 1.0), true, Vector3.ZERO, Vector3(1.3, 1.0, 1.0))
+		_:
+			_add_part_box(root, dims, Vector3.ZERO, tint)
+	return root
+
+
+func _add_part_box(root: Node3D, dimensions: Vector3, at: Vector3, tint: Color, emissive := false) -> MeshInstance3D:
+	var mesh := BoxMesh.new()
+	mesh.size = dimensions
+	return _add_part_mesh(root, mesh, at, tint, emissive)
+
+
+func _add_part_mesh(root: Node3D, mesh: Mesh, at: Vector3, tint: Color, emissive := false, rotation := Vector3.ZERO, mesh_scale := Vector3.ONE) -> MeshInstance3D:
+	var part_mesh := MeshInstance3D.new()
+	part_mesh.mesh = mesh
+	part_mesh.position = at
+	part_mesh.rotation = rotation
+	part_mesh.scale = mesh_scale
+	var material := StandardMaterial3D.new()
+	material.albedo_color = tint
+	material.roughness = 0.56
+	material.metallic = 0.25
+	if emissive:
+		material.emission_enabled = true
+		material.emission = tint
+		material.emission_energy_multiplier = 0.9
+	part_mesh.material_override = material
+	root.add_child(part_mesh)
+	return part_mesh
+
+
+func _add_engine_visual(root: Node3D, dimensions: Vector3, tint: Color, at: Vector3) -> void:
+	var engine := CylinderMesh.new()
+	engine.top_radius = dimensions.x * 0.42
+	engine.bottom_radius = dimensions.x * 0.5
+	engine.height = dimensions.z * 0.68
+	engine.radial_segments = 8
+	_add_part_mesh(root, engine, at + Vector3(0.0, 0.0, dimensions.z * 0.1), tint, false, Vector3(PI * 0.5, 0.0, 0.0))
+	var nozzle := CylinderMesh.new()
+	nozzle.top_radius = dimensions.x * 0.29
+	nozzle.bottom_radius = dimensions.x * 0.4
+	nozzle.height = dimensions.z * 0.18
+	nozzle.radial_segments = 8
+	_add_part_mesh(root, nozzle, at + Vector3(0.0, 0.0, dimensions.z * 0.54), Color(0.15, 0.86, 1.0), true, Vector3(PI * 0.5, 0.0, 0.0))
+
+
+func _add_cannon_visual(root: Node3D, dimensions: Vector3, tint: Color, at: Vector3, barrel_scale: float) -> void:
+	_add_part_box(root, Vector3(dimensions.x * 0.84, dimensions.y * 0.7, dimensions.z * 0.42), at + Vector3(0.0, 0.0, dimensions.z * 0.14), tint)
+	var barrel := CylinderMesh.new()
+	barrel.top_radius = dimensions.x * 0.2 * barrel_scale
+	barrel.bottom_radius = dimensions.x * 0.27 * barrel_scale
+	barrel.height = dimensions.z * 0.72
+	barrel.radial_segments = 8
+	_add_part_mesh(root, barrel, at + Vector3(0.0, 0.0, -dimensions.z * 0.36), tint.lightened(0.2), false, Vector3(PI * 0.5, 0.0, 0.0))
 
 
 func _make_block(at: Vector3, dimensions: Vector3, tint: Color, emissive := false) -> MeshInstance3D:
@@ -506,13 +648,21 @@ func _build_ui() -> void:
 		thumbnail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		var preview_path := str(item.preview)
+		var preview_path := str(item.get("preview", ""))
 		if ResourceLoader.exists(preview_path):
 			thumbnail.texture = load(preview_path)
+		else:
+			var part_preview := PartPreview.new()
+			part_preview.part_id = str(part_id)
+			part_preview.part_shape = str(item.shape)
+			part_preview.tint = _part_tint(str(part_id))
+			part_preview.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			thumbnail.add_child(part_preview)
 		card_column.add_child(thumbnail)
 		var part_title := _label(str(item.title), 18, Color(0.88, 0.95, 1.0))
 		card_column.add_child(part_title)
-		var part_hint := _label("%s  •  %d SCRAP" % [str(item.hint), int(item.cost)], 14, Color(0.55, 0.76, 0.93))
+		var cost_label := "FREE" if int(item.cost) == 0 else "%d SCRAP" % int(item.cost)
+		var part_hint := _label("%s  •  %s  •  %.1f MASS" % [str(item.hint), cost_label, float(item.mass)], 14, Color(0.55, 0.76, 0.93))
 		card_column.add_child(part_hint)
 		var part_button := _button("", 15)
 		part_button.custom_minimum_size = Vector2(0.0, 42.0)
@@ -524,7 +674,7 @@ func _build_ui() -> void:
 		builder_cards[part_id] = card
 	var builder_footer := HBoxContainer.new()
 	shop_column.add_child(builder_footer)
-	var shop_note := _label("UNLOCKS PERSIST  •  BUILD WITH UP TO 12 BLOCKS  •  RUN BUILDS RESET AFTER GAME OVER", 14, Color(0.62, 0.69, 0.83))
+	var shop_note := _label("20 BLOCKS MAX  •  50 MASS LIMIT  •  HEAVY BUILDS TURN / BOOST SLOWER  •  UNLOCKS PERSIST", 14, Color(0.62, 0.69, 0.83))
 	shop_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	builder_footer.add_child(shop_note)
 	var back := _button("FLIGHT DECK", 17)
@@ -532,7 +682,7 @@ func _build_ui() -> void:
 	back.set_meta("builder_component", true)
 	back.pressed.connect(_show_hangar)
 	builder_footer.add_child(back)
-	builder_preview_label = _label("3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 4 BLOCKS" % equipped_parts.size(), 21, Color(0.78, 0.9, 1.0))
+	builder_preview_label = _label("3D SHIP PREVIEW\nWEIGHT %.1f / %.0f" % [_ship_weight(), SHIP_WEIGHT_LIMIT], 21, Color(0.78, 0.9, 1.0))
 	builder_preview_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	builder_preview_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	shop_panel.add_child(builder_preview_label)
@@ -801,8 +951,8 @@ func _show_builder() -> void:
 	build_grid_root.visible = true
 	player.rotation = Vector3.ZERO
 	camera.fov = 62.0
-	camera.position = player.position + Vector3(3.2, 2.6, 10.5)
-	camera.look_at(player.position + Vector3(-7.0, 0.0, 0.0), Vector3.UP)
+	camera.position = player.position + Vector3(2.8, 2.4, 13.5)
+	camera.look_at(player.position + Vector3(-10.0, 0.0, 0.0), Vector3.UP)
 	active_category = "ALL"
 	_update_shop_buttons()
 
@@ -819,7 +969,7 @@ func _update_shop_buttons() -> void:
 		var equipped := _has_placed_part(part_id)
 		var button: Button = shop_buttons[part_id]
 		if not owned:
-			button.text = "BUILD  •  %d SCRAP" % int(item.cost)
+			button.text = "UNLOCK FREE" if int(item.cost) == 0 else "BUILD  •  %d SCRAP" % int(item.cost)
 		elif equipped:
 			button.text = "IN BUILD  •  DRAG ANOTHER COPY"
 		else:
@@ -827,8 +977,8 @@ func _update_shop_buttons() -> void:
 		button.disabled = false
 		var card: Control = builder_cards[part_id]
 		card.visible = active_category == "ALL" or str(item.category) == active_category
-	shop_status.text = "SCRAP %d  •  PLACED %d / %d" % [total_scrap, part_placements.size(), MAX_PLACED_BLOCKS]
-	builder_preview_label.text = "SHIP WORKSHOP\nDRAG TO ORBIT  •  %d / %d BLOCKS" % [part_placements.size(), MAX_PLACED_BLOCKS]
+	shop_status.text = "SCRAP %d  •  WEIGHT %.1f / %.0f" % [total_scrap, _ship_weight(), SHIP_WEIGHT_LIMIT]
+	builder_preview_label.text = "SHIP WORKSHOP\nDRAG TO ORBIT  •  %d / %d BLOCKS\nWEIGHT %.1f / %.0f" % [part_placements.size(), MAX_PLACED_BLOCKS, _ship_weight(), SHIP_WEIGHT_LIMIT]
 	if is_instance_valid(builder_place_label):
 		var title := str(PARTS[selected_part_id].title) if PARTS.has(selected_part_id) else "NO BLOCK SELECTED"
 		if selected_placement_index >= 0 and selected_placement_index < part_placements.size():
@@ -850,7 +1000,7 @@ func _on_shop_part_pressed(part_id: String) -> void:
 			return
 		total_scrap -= int(item.cost)
 		owned_parts.append(part_id)
-		shop_status.text = "%s UNLOCKED  •  SELECT IT, THEN PLACE IT" % item.title
+		shop_status.text = "%s UNLOCKED  •  DRAG IT ONTO THE BUILD GRID" % item.title
 		_save_profile()
 	selected_part_id = part_id
 	selected_placement_index = -1
@@ -871,6 +1021,10 @@ func _place_selected_block(screen_position: Vector2) -> void:
 	if part_placements.size() >= MAX_PLACED_BLOCKS:
 		shop_status.text = "MAX %d BLOCKS  •  REMOVE ONE TO MAKE ROOM" % MAX_PLACED_BLOCKS
 		return
+	var added_mass := float(PARTS[selected_part_id].mass)
+	if _ship_weight() + added_mass > SHIP_WEIGHT_LIMIT + 0.001:
+		shop_status.text = "OVER WEIGHT  •  %.1f / %.0f  •  REMOVE A BLOCK" % [_ship_weight() + added_mass, SHIP_WEIGHT_LIMIT]
+		return
 	var target := _screen_to_ship_position(screen_position, placement_depth)
 	var snapped := _snap_free_grid(target, selected_part_id, placement_rotation)
 	if snapped.x < -100.0:
@@ -881,7 +1035,7 @@ func _place_selected_block(screen_position: Vector2) -> void:
 	_sync_equipped_parts()
 	_rebuild_ship_mesh()
 	_save_profile()
-	shop_status.text = "%s PLACED ON BUILD GRID" % str(PARTS[selected_part_id].title)
+	shop_status.text = "%s PLACED  •  MASS %.1f / %.0f" % [str(PARTS[selected_part_id].title), _ship_weight(), SHIP_WEIGHT_LIMIT]
 	_update_shop_buttons()
 
 
@@ -909,8 +1063,8 @@ func _snap_free_grid(target: Vector2, part_id: String, rotation: float, ignore_i
 		part_size = Vector2(part_size.y, part_size.x)
 	var candidate := Vector3(grid_position.x, grid_position.y, placement_depth)
 	var candidate_depth := _part_depth(part_id)
-	var body_size := Vector3(1.55, 0.8, 3.0)
-	if _boxes_overlap(candidate, Vector3(part_size.x, part_size.y, candidate_depth), Vector3(0.0, 0.0, 0.25), body_size):
+	var body_size := Vector3(0.85, 0.7, 1.3)
+	if _boxes_overlap(candidate, Vector3(part_size.x, part_size.y, candidate_depth), Vector3.ZERO, body_size):
 		return Vector2(-999.0, -999.0)
 	for index in range(part_placements.size()):
 		if index == ignore_index:
@@ -931,29 +1085,63 @@ func _boxes_overlap(a: Vector3, a_size: Vector3, b: Vector3, b_size: Vector3) ->
 
 
 func _part_depth(part_id: String) -> float:
-	match part_id:
-		"splitter_nose", "wing_pack", "side_pods": return 0.72
-		"fin_set", "boost_core", "armor": return 0.62
-		"twin_cannon": return 0.82
-	return 0.72
+	return _part_dim_vector(part_id).z
 
 
 func _part_dimensions(part_id: String) -> Vector2:
+	var dims := _part_dim_vector(part_id)
+	return Vector2(dims.x, dims.y)
+
+
+func _part_dim_vector(part_id: String) -> Vector3:
+	var dimensions: Array = PARTS.get(part_id, {}).get("dims", [0.8, 0.48, 0.72])
+	return Vector3(float(dimensions[0]), float(dimensions[1]), float(dimensions[2]))
+
+
+func _part_tint(part_id: String) -> Color:
 	match part_id:
-		"splitter_nose": return Vector2(0.92, 0.34)
-		"wing_pack": return Vector2(1.0, 0.2)
-		"fin_set": return Vector2(0.28, 0.76)
-		"boost_core": return Vector2(0.52, 0.42)
-		"side_pods": return Vector2(0.48, 0.52)
-		"twin_cannon": return Vector2(0.24, 0.24)
-		"armor": return Vector2(0.92, 0.22)
-	return Vector2(0.8, 0.48)
+		"hull_cube": return Color(0.54, 0.61, 0.72)
+		"hull_wedge", "splitter_nose": return Color(0.9, 0.62, 0.32)
+		"hull_fuselage": return Color(0.4, 0.54, 0.7)
+		"cockpit_shell": return Color(0.23, 0.42, 0.62)
+		"hull_plate", "armor", "shield_plate": return Color(0.7, 0.76, 0.88)
+		"wing_pack", "fin_set": return Color(0.85, 0.39, 0.32)
+		"boost_core", "ion_booster", "side_pods": return Color(0.22, 0.47, 0.7)
+		"shield_emitter": return Color(0.24, 0.81, 0.95)
+		"pulse_cannon", "twin_cannon", "heavy_cannon", "scatter_cannon": return Color(0.95, 0.64, 0.26)
+	return Color(0.9, 0.45, 0.28)
+
+
+func _make_wedge_mesh(dimensions: Vector3) -> ArrayMesh:
+	var half_x := dimensions.x * 0.5
+	var half_y := dimensions.y * 0.5
+	var half_z := dimensions.z * 0.5
+	var front_bottom := Vector3(0.0, -half_y, -half_z)
+	var rear_left_bottom := Vector3(-half_x, -half_y, half_z)
+	var rear_right_bottom := Vector3(half_x, -half_y, half_z)
+	var front_top := Vector3(0.0, half_y, -half_z)
+	var rear_left_top := Vector3(-half_x, half_y, half_z)
+	var rear_right_top := Vector3(half_x, half_y, half_z)
+	var faces := [
+		[front_bottom, rear_right_bottom, rear_left_bottom],
+		[front_top, rear_left_top, rear_right_top],
+		[rear_left_bottom, rear_right_bottom, rear_right_top], [rear_left_bottom, rear_right_top, rear_left_top],
+		[rear_left_bottom, front_bottom, front_top], [rear_left_bottom, front_top, rear_left_top],
+		[front_bottom, rear_right_bottom, rear_right_top], [front_bottom, rear_right_top, front_top],
+	]
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for face in faces:
+		for point in face:
+			surface.add_vertex(point)
+	surface.generate_normals()
+	return surface.commit()
 
 
 func _part_under_pointer(screen_position: Vector2) -> String:
 	for part_id in shop_buttons.keys():
-		var button: Button = shop_buttons[part_id]
-		if owned_parts.has(part_id) and button.visible and button.get_global_rect().has_point(screen_position):
+		var card: Control = builder_cards[part_id]
+		if owned_parts.has(part_id) and card.visible and card.get_global_rect().has_point(screen_position):
 			return "part:" + str(part_id)
 	if screen_position.x > get_viewport().get_visible_rect().size.x * 0.65:
 		var picked := _pick_placed_block(screen_position)
@@ -1046,10 +1234,37 @@ func _move_placed_block(index: int, screen_position: Vector2) -> void:
 
 func _sync_equipped_parts() -> void:
 	equipped_parts = ["core"]
+	ship_handling_bonus = 0.0
+	ship_boost_power = 0.0
+	ship_boost_time_bonus = 0.0
+	ship_fire_rate_bonus = 0.0
+	ship_armor_capacity = 0
 	for placement in part_placements:
 		var part_id := str(placement.get("id", ""))
 		if PARTS.has(part_id) and not equipped_parts.has(part_id):
 			equipped_parts.append(part_id)
+		if PARTS.has(part_id):
+			var item: Dictionary = PARTS[part_id]
+			ship_handling_bonus += float(item.get("handling", 0.0))
+			ship_boost_power += float(item.get("boost", 0.0))
+			ship_boost_time_bonus += float(item.get("boost_time", 0.0))
+			ship_fire_rate_bonus += float(item.get("fire_rate", 0.0))
+			ship_armor_capacity += int(item.get("armor", 0))
+	ship_handling_bonus = clampf(ship_handling_bonus, 0.0, 0.45)
+	ship_boost_power = minf(ship_boost_power, 12.0)
+	ship_boost_time_bonus = minf(ship_boost_time_bonus, 1.2)
+	ship_fire_rate_bonus = clampf(ship_fire_rate_bonus, -0.2, 0.2)
+	ship_armor_capacity = mini(ship_armor_capacity, 5)
+	boost_duration = 1.15 + ship_boost_time_bonus
+
+
+func _ship_weight() -> float:
+	var weight := SHIP_CORE_MASS
+	for placement in part_placements:
+		var part_id := str(placement.get("id", ""))
+		if PARTS.has(part_id):
+			weight += float(PARTS[part_id].mass)
+	return weight
 
 
 func _rotate_next_block() -> void:
@@ -1117,6 +1332,7 @@ func _clear_placed_blocks() -> void:
 
 
 func _start_run() -> void:
+	_sync_equipped_parts()
 	runs_started += 1
 	rng.randomize()
 	var rare_life_chance := 0.20
@@ -1133,12 +1349,12 @@ func _start_run() -> void:
 	run_scrap = 0
 	steering_target = Vector2.ZERO
 	invulnerability = 0.0
-	armor_charge = 1 if equipped_parts.has("armor") else 0
+	armor_charge = ship_armor_capacity
 	firing = false
 	fire_cooldown = 0.0
 	boost_time = 0.0
 	boost_cooldown = 0.0
-	boost_duration = 1.8 if equipped_parts.has("boost_core") else 1.15
+	boost_duration = 1.15 + ship_boost_time_bonus
 	boost_speed = 0.0
 	_choose_background_view()
 	for item in course_objects:
@@ -1158,7 +1374,7 @@ func _start_run() -> void:
 	_rebuild_ship_mesh()
 	while next_segment_distance < 190.0:
 		_spawn_segment(-next_segment_distance)
-		next_segment_distance += rng.randf_range(48.0, 74.0)
+		next_segment_distance += _next_segment_gap()
 	state = ScreenState.RUN
 	menu_panel.visible = false
 	shop_panel.visible = false
@@ -1181,7 +1397,9 @@ func _finish_stage() -> void:
 	var multiplier := 1.0 + float(stage_index - 1) * STAGE_MULTIPLIER_STEP
 	var next_multiplier := multiplier + STAGE_MULTIPLIER_STEP
 	var payout := int(round(float(run_scrap) * multiplier))
-	stage_break_summary.text = "STAGE %d COMPLETE\nUNBANKED HAUL  %d SCRAP\nCASH OUT NOW  %d SCRAP  •  x%.2f\nCONTINUE TO RAISE IT TO  x%.2f" % [stage_index, run_scrap, payout, multiplier, next_multiplier]
+	var completed_leg := int(round(_stage_distance_for_index(stage_index)))
+	var next_leg := int(round(_stage_distance_for_index(stage_index + 1)))
+	stage_break_summary.text = "STAGE %d COMPLETE  •  %dm LEG\nUNBANKED HAUL  %d SCRAP\nCASH OUT NOW  %d SCRAP  •  x%.2f\nCONTINUE: %dm LEG  •  FASTER / DENSER  •  x%.2f" % [stage_index, completed_leg, run_scrap, payout, multiplier, next_leg, next_multiplier]
 	var view_number := selected_background_index * BACKGROUND_ANGLES + selected_background_angle + 1
 	stage_break_view_label.text = "SPACE VIEW  %02d / 30" % view_number
 
@@ -1222,7 +1440,7 @@ func _continue_run() -> void:
 	_choose_background_view()
 	while next_segment_distance < 190.0:
 		_spawn_segment(-next_segment_distance)
-		next_segment_distance += rng.randf_range(48.0, 74.0)
+		next_segment_distance += _next_segment_gap()
 	stage_break_panel.visible = false
 	stage_break_shade.visible = false
 	hud.visible = true
@@ -1237,8 +1455,8 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			if state == ScreenState.BUILDER:
 				player.rotation.y += delta * 0.24
-				camera.position = camera.position.lerp(player.position + Vector3(1.2, 3.4, 10.0), minf(delta * 3.0, 1.0))
-				camera.look_at(player.position + Vector3(-4.3, 0.0, 0.0), Vector3.UP)
+				camera.position = camera.position.lerp(player.position + Vector3(2.8, 2.4, 13.5), minf(delta * 3.0, 1.0))
+				camera.look_at(player.position + Vector3(-10.0, 0.0, 0.0), Vector3.UP)
 			else:
 				camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
 				camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
@@ -1271,7 +1489,8 @@ func _update_flight(delta: float) -> void:
 	starfield_offset = fmod(starfield_offset + current_speed * delta * 0.12, 210.0)
 	stars.position.z = starfield_offset - 100.0
 	var target := Vector3(steering_target.x, steering_target.y, 0.0)
-	var response := 17.0 if equipped_parts.has("wing_pack") or equipped_parts.has("fin_set") else 13.5
+	var weight_ratio := clampf((_ship_weight() - SHIP_CORE_MASS) / (SHIP_WEIGHT_LIMIT - SHIP_CORE_MASS), 0.0, 1.0)
+	var response := (13.5 + ship_handling_bonus * 13.0) * (1.0 - weight_ratio * 0.34)
 	var follow := 1.0 - exp(-response * delta)
 	player.position.x = lerpf(player.position.x, target.x, follow)
 	player.position.y = lerpf(player.position.y, target.y, follow)
@@ -1284,13 +1503,13 @@ func _update_flight(delta: float) -> void:
 		camera_target += Vector3(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake), 0.0)
 	camera.position = camera.position.lerp(camera_target, minf(delta * 6.0, 1.0))
 	camera.look_at(player.position + Vector3(0.0, 0.0, -16.0), Vector3.UP)
-	if stage_distance >= STAGE_DISTANCE:
+	if stage_distance >= _stage_distance_for_index(stage_index):
 		_finish_stage()
 		return
 
 	while next_segment_distance < stage_distance + 190.0:
 		_spawn_segment(-next_segment_distance)
-		next_segment_distance += rng.randf_range(48.0, 76.0)
+		next_segment_distance += _next_segment_gap()
 	for item in course_objects:
 		if is_instance_valid(item):
 			if item.is_in_group("pickups"):
@@ -1302,7 +1521,7 @@ func _update_flight(delta: float) -> void:
 				item.queue_free()
 	for shot in projectiles:
 		if is_instance_valid(shot):
-			shot.position.z -= 95.0 * delta
+			shot.position.z -= float(shot.get_meta("speed", 95.0)) * delta
 			if shot.global_position.z < -210.0:
 				shot.queue_free()
 	projectiles = projectiles.filter(func(node): return is_instance_valid(node))
@@ -1311,8 +1530,21 @@ func _update_flight(delta: float) -> void:
 	var auto_fire := firing or Input.is_key_pressed(KEY_SPACE)
 	if auto_fire and fire_cooldown <= 0.0:
 		_fire_weapon()
-		fire_cooldown = 0.16 if equipped_parts.has("twin_cannon") else 0.3
+		fire_cooldown = _weapon_cooldown_period()
 	_update_hud()
+
+
+func _stage_distance_for_index(index: int) -> float:
+	# Each continue stretches the next flight leg, then levels off for very long runs.
+	return minf(FIRST_STAGE_DISTANCE * pow(1.15, float(maxi(index - 1, 0))), MAX_STAGE_DISTANCE)
+
+
+func _next_segment_gap() -> float:
+	# Later stages pack course patterns closer together while preserving a readable gap.
+	var stage_pressure := float(maxi(stage_index - 1, 0))
+	var minimum_gap := maxf(36.0, 48.0 - stage_pressure * 1.5)
+	var maximum_gap := maxf(minimum_gap + 10.0, 76.0 - stage_pressure * 2.5)
+	return rng.randf_range(minimum_gap, maximum_gap)
 
 
 func _spawn_segment(z_position: float) -> void:
@@ -1326,7 +1558,7 @@ func _spawn_segment(z_position: float) -> void:
 		0:
 			_spawn_gate(z_position, rng.randi_range(0, 4))
 		1:
-			_spawn_debris(z_position, 3 + mini(rift_level, 3))
+			_spawn_debris(z_position, 3 + mini(rift_level, 3) + mini(int(float(stage_index - 1) / 2.0), 2))
 		2:
 			_spawn_salvage_line(z_position)
 		3:
@@ -1334,7 +1566,7 @@ func _spawn_segment(z_position: float) -> void:
 		4:
 			_spawn_alternating_wall(z_position, rift_level)
 		_:
-			_spawn_debris(z_position, 2)
+			_spawn_debris(z_position, 2 + mini(int(float(stage_index - 1) / 2.0), 2))
 			if rng.randf() < 0.7:
 				_spawn_pickup(Vector3(rng.randf_range(-11.0, 11.0), rng.randf_range(-6.5, 6.5), z_position - 12.0), "scrap")
 	if segment_number == secret_life_segment and not secret_life_claimed:
@@ -1438,7 +1670,8 @@ func _spawn_salvage_line(z_position: float) -> void:
 
 func _spawn_alternating_wall(z_position: float, level: int) -> void:
 	var safe_x := rng.randf_range(-10.5, 10.5)
-	var count := 3 + mini(level, 2)
+	var stage_extra := mini(int(float(stage_index - 1) / 2.0), 2)
+	var count := 3 + mini(level, 2) + stage_extra
 	for i in range(count):
 		var x := rng.randf_range(-13.8, 13.8)
 		while absf(x - safe_x) < 5.5:
@@ -1509,22 +1742,53 @@ func _spawn_enemy(z_position: float) -> void:
 	_spawn_pickup(Vector3(enemy.position.x, enemy.position.y + 2.5, z_position - 3.0), "scrap")
 
 
+func _weapon_cooldown_period() -> float:
+	return clampf(0.3 - ship_fire_rate_bonus, 0.1, 0.58)
+
+
 func _fire_weapon() -> void:
-	var barrels := [-0.53, 0.53] if equipped_parts.has("twin_cannon") else [0.0]
-	for barrel_x in barrels:
-		var shot := Area3D.new()
-		shot.position = player.position + Vector3(barrel_x, 0.0, -2.0)
-		shot.collision_layer = 2
-		shot.collision_mask = 4
-		var shape_node := CollisionShape3D.new()
-		var shape := BoxShape3D.new()
-		shape.size = Vector3(0.38, 0.38, 1.25)
-		shape_node.shape = shape
-		shot.add_child(shape_node)
-		shot.add_child(_make_block(Vector3.ZERO, Vector3(0.25, 0.25, 1.1), Color(0.35, 0.89, 1.0), true))
-		shot.area_entered.connect(_on_shot_hit.bind(shot))
-		add_child(shot)
-		projectiles.append(shot)
+	var fired_weapon := false
+	for placement in part_placements:
+		var part_id := str(placement.get("id", ""))
+		if not PARTS.has(part_id) or str(PARTS[part_id].category) != "WEAPONS":
+			continue
+		fired_weapon = true
+		var mount: Vector3 = placement.get("position", Vector3.ZERO)
+		var barrels: Array[Vector2] = [Vector2.ZERO]
+		var shot_size := Vector3(0.28, 0.28, 1.0)
+		var shot_color := Color(0.35, 0.89, 1.0)
+		var shot_speed := 95.0
+		match part_id:
+			"twin_cannon":
+				barrels = [Vector2(-0.25, 0.0), Vector2(0.25, 0.0)]
+			"heavy_cannon":
+				shot_size = Vector3(0.58, 0.58, 1.45)
+				shot_color = Color(1.0, 0.54, 0.22)
+				shot_speed = 80.0
+			"scatter_cannon":
+				barrels = [Vector2(-0.4, 0.0), Vector2.ZERO, Vector2(0.4, 0.0)]
+				shot_color = Color(1.0, 0.72, 0.3)
+		for barrel in barrels:
+			_spawn_projectile(player.position + Vector3(mount.x + barrel.x, mount.y + barrel.y, mount.z - 0.7), shot_size, shot_color, shot_speed)
+	if not fired_weapon:
+		_spawn_projectile(player.position + Vector3(0.0, 0.0, -0.8), Vector3(0.28, 0.28, 1.0), Color(0.35, 0.89, 1.0), 95.0)
+
+
+func _spawn_projectile(at: Vector3, dimensions: Vector3, tint: Color, speed: float) -> void:
+	var shot := Area3D.new()
+	shot.position = at
+	shot.collision_layer = 2
+	shot.collision_mask = 4
+	shot.set_meta("speed", speed)
+	var shape_node := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = dimensions * 1.3
+	shape_node.shape = shape
+	shot.add_child(shape_node)
+	shot.add_child(_make_block(Vector3.ZERO, dimensions, tint, true))
+	shot.area_entered.connect(_on_shot_hit.bind(shot))
+	add_child(shot)
+	projectiles.append(shot)
 
 
 func _on_shot_hit(area: Area3D, shot: Area3D) -> void:
@@ -1575,7 +1839,8 @@ func _activate_boost() -> void:
 		return
 	boost_time = boost_duration
 	camera_shake = maxf(camera_shake, 0.16)
-	boost_speed = 17.0 if equipped_parts.has("boost_core") else 11.0
+	var weight_ratio := clampf((_ship_weight() - SHIP_CORE_MASS) / (SHIP_WEIGHT_LIMIT - SHIP_CORE_MASS), 0.0, 1.0)
+	boost_speed = maxf(6.0, 11.0 + ship_boost_power - weight_ratio * 4.0)
 	boost_cooldown = 5.2
 	invulnerability = maxf(invulnerability, 0.5)
 
@@ -1594,6 +1859,7 @@ func _end_run() -> void:
 	equipped_parts = ["core"]
 	part_placements.clear()
 	selected_placement_index = -1
+	_sync_equipped_parts()
 	_save_profile()
 	var summary: Label = game_over_panel.get_meta("summary")
 	summary.text = "SCORE  %d\nUNBANKED SALVAGE LOST  %d\nBEST FLIGHT  %d\nBANKED SCRAP  %d" % [run_score, run_scrap, high_score, total_scrap]
@@ -1736,7 +2002,9 @@ func _load_profile() -> void:
 	part_placements.clear()
 	for placement in saved_placements:
 		if placement is Dictionary and PARTS.has(str(placement.get("id", ""))) and part_placements.size() < MAX_PLACED_BLOCKS:
-			part_placements.append({"id": str(placement.get("id", "")), "position": placement.get("position", Vector3.ZERO), "rotation": float(placement.get("rotation", 0.0))})
+			var part_id := str(placement.get("id", ""))
+			if _ship_weight() + float(PARTS[part_id].mass) <= SHIP_WEIGHT_LIMIT:
+				part_placements.append({"id": part_id, "position": placement.get("position", Vector3.ZERO), "rotation": float(placement.get("rotation", 0.0))})
 	if part_placements.is_empty():
 		var legacy_positions := [Vector3(-1.0, 0.0, -0.1), Vector3(1.0, 0.0, -0.1), Vector3(0.0, 0.9, -0.1)]
 		var slot := 0
