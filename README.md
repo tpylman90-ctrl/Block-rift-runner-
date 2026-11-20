@@ -12,8 +12,8 @@ A standalone, low-poly space-flight arcade game built with Godot. Courses are as
 - Each stage ends at a decision pause: bank the unbanked salvage and return to the hangar, or continue with the haul at risk for a higher multiplier. Continuing raises the multiplier by 0.25 and slightly increases speed and obstacle difficulty.
 - Only cashed-out salvage becomes banked scrap. Losing all lives forfeits the unbanked haul; unlocked ship blocks and previously banked scrap persist.
 - Six compressed scenic backgrounds each have five camera crops, giving 30 reusable space views without 30 full-size textures. A new view is selected for every run and continued stage.
-- Four modular parts can be bought and equipped in the hangar; the active build resets when all lives are lost.
-- Separate ship-builder window with category tabs, photo-style previews, scrap costs, and a rotatable live ship preview.
+- Modular parts can be unlocked with banked scrap, then placed manually on the ship in the separate builder window. Choose a block, tap the canvas to position it, rotate the next block, remove the last placement, or clear the build. The live ship preview can still be orbited by dragging.
+- The flight backdrop uses a full-screen scenic image layer with 30 reusable crop views, keeping it visible on Android even if the 3D backdrop plane fails to render.
 - Blender-authored low-poly ship modules and three asteroid models used in the generated flight corridors, with the editable source scene and generation script included.
 - High-resolution deep-space photo backdrops frame each flight stage; detailed, smooth-shaded asteroid hazards contrast with the intentionally blocky low-poly ship.
 
