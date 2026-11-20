@@ -2,6 +2,16 @@
 
 A standalone, low-poly space-flight arcade game built with Godot. Courses are assembled from rule-checked block formations in open space; the ship and scenery use simple geometry and flat materials.
 
+## Current playable slice
+
+- Landscape flight view with responsive expanded layout for wider Android screens.
+- Endless runs assembled from block gates, debris fields, salvage paths, and drone encounters.
+- Drag to steer; hold **FIRE** to shoot; tap **BOOST** to surge. Desktop testing also supports mouse drag, Space, and Shift.
+- Three lives per run. A rare life cache has a random 20% chance to appear in each run.
+- Scrap and unlocked ship blocks persist between runs. Four modular parts can be bought and equipped in the hangar; the active build resets after a run ends.
+
+This is an early playable build. Flight feel, collision spacing, and touch sizing are ready for device feedback and tuning.
+
 ## Toolchain
 
 | Tool | Version / setting |
