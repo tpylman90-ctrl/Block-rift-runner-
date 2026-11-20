@@ -54,6 +54,9 @@ var boost_time := 0.0
 var boost_cooldown := 0.0
 var boost_duration := 1.15
 var boost_speed := 0.0
+var steering_touch_index := -1
+var camera_shake := 0.0
+var engine_flames: Array[MeshInstance3D] = []
 var secret_life_segment := -1
 var secret_life_claimed := false
 var course_objects: Array[Node3D] = []
@@ -76,22 +79,22 @@ func _build_world() -> void:
 	var world_environment := WorldEnvironment.new()
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.006, 0.012, 0.035)
+	environment.background_color = Color(0.012, 0.008, 0.045)
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.23, 0.31, 0.56)
-	environment.ambient_light_energy = 0.65
+	environment.ambient_light_color = Color(0.34, 0.27, 0.72)
+	environment.ambient_light_energy = 0.82
 	world_environment.environment = environment
 	add_child(world_environment)
 
 	var key_light := DirectionalLight3D.new()
 	key_light.rotation_degrees = Vector3(-28.0, -25.0, 0.0)
-	key_light.light_color = Color(0.69, 0.82, 1.0)
-	key_light.light_energy = 1.3
+	key_light.light_color = Color(0.62, 0.8, 1.0)
+	key_light.light_energy = 1.65
 	add_child(key_light)
 
 	camera = Camera3D.new()
 	camera.current = true
-	camera.fov = 73.0
+	camera.fov = 78.0
 	add_child(camera)
 
 	course_root = Node3D.new()
@@ -141,6 +144,7 @@ func _build_ship() -> void:
 
 
 func _rebuild_ship_mesh() -> void:
+	engine_flames.clear()
 	for child in player.get_children():
 		if child is MeshInstance3D:
 			child.queue_free()
@@ -155,6 +159,11 @@ func _rebuild_ship_mesh() -> void:
 		player.add_child(engine)
 		var glow := _make_block(Vector3(side * 0.92, -0.08, 1.83), Vector3(0.28, 0.3, 0.15), Color(0.13, 0.78, 1.0), true)
 		player.add_child(glow)
+		var flame := _make_block(Vector3(side * 0.92, -0.08, 2.18), Vector3(0.22, 0.24, 0.72), Color(0.24, 0.62, 1.0), true)
+		player.add_child(flame)
+		engine_flames.append(flame)
+	var center_glow := _make_block(Vector3(0.0, 0.0, 1.62), Vector3(0.34, 0.28, 0.2), Color(0.96, 0.37, 1.0), true)
+	player.add_child(center_glow)
 	if equipped_parts.has("wing_pack"):
 		for side in [-1.0, 1.0]:
 			player.add_child(_make_block(Vector3(side * 1.45, -0.04, 0.2), Vector3(1.35, 0.25, 1.25), Color(0.93, 0.39, 0.24)))
@@ -176,6 +185,7 @@ func _make_block(at: Vector3, dimensions: Vector3, tint: Color, emissive := fals
 	var material := StandardMaterial3D.new()
 	material.albedo_color = tint
 	material.roughness = 0.72
+	material.metallic = 0.12
 	if emissive:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.emission_enabled = true
@@ -489,20 +499,30 @@ func _update_flight(delta: float) -> void:
 		boost_speed = move_toward(boost_speed, 0.0, delta * 30.0)
 	boost_cooldown = maxf(boost_cooldown - delta, 0.0)
 	var current_speed := run_speed + boost_speed
+	var flame_pulse := 0.76 + 0.34 * sin(Time.get_ticks_msec() * 0.022)
+	for flame in engine_flames:
+		if is_instance_valid(flame):
+			flame.scale.z = flame_pulse * (1.65 if boost_time > 0.0 else 1.0)
+	camera.fov = lerpf(camera.fov, 86.0 if boost_time > 0.0 else 78.0, delta * 4.0)
+	camera_shake = move_toward(camera_shake, 0.0, delta * 12.0)
 	distance += current_speed * delta
 	run_score += int(current_speed * delta * 4.0)
 	course_root.position.z += current_speed * delta
 	starfield_offset = fmod(starfield_offset + current_speed * delta * 0.12, 210.0)
 	stars.position.z = starfield_offset - 100.0
 	var target := Vector3(steering_target.x, steering_target.y, 0.0)
-	var response := steering_rate if equipped_parts.has("wing_pack") else 7.0
-	player.position.x = move_toward(player.position.x, target.x, delta * response)
-	player.position.y = move_toward(player.position.y, target.y, delta * response)
-	player.position.x = clampf(player.position.x, -10.0, 10.0)
-	player.position.y = clampf(player.position.y, -5.5, 5.5)
-	player.rotation.z = lerpf(player.rotation.z, clampf((target.x - player.position.x) * -0.08, -0.55, 0.55), delta * 4.0)
-	player.rotation.x = lerpf(player.rotation.x, clampf((target.y - player.position.y) * 0.06, -0.28, 0.28), delta * 4.0)
-	camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.9, 11.5), minf(delta * 4.0, 1.0))
+	var response := 17.0 if equipped_parts.has("wing_pack") else 13.5
+	var follow := 1.0 - exp(-response * delta)
+	player.position.x = lerpf(player.position.x, target.x, follow)
+	player.position.y = lerpf(player.position.y, target.y, follow)
+	player.position.x = clampf(player.position.x, -9.2, 9.2)
+	player.position.y = clampf(player.position.y, -5.2, 5.2)
+	player.rotation.z = lerpf(player.rotation.z, clampf((target.x - player.position.x) * -0.12, -0.72, 0.72), delta * 7.0)
+	player.rotation.x = lerpf(player.rotation.x, clampf((target.y - player.position.y) * 0.1, -0.36, 0.36), delta * 7.0)
+	var camera_target := player.position + Vector3(0.0, 3.9, 11.5)
+	if camera_shake > 0.0:
+		camera_target += Vector3(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake), 0.0)
+	camera.position = camera.position.lerp(camera_target, minf(delta * 6.0, 1.0))
 	camera.look_at(player.position + Vector3(0.0, 0.0, -16.0), Vector3.UP)
 
 	while next_segment_distance < distance + 190.0:
@@ -532,6 +552,7 @@ func _update_flight(delta: float) -> void:
 func _spawn_segment(z_position: float) -> void:
 	segment_number += 1
 	var rift_level := int(float(segment_number) / 4.0) + 1
+	_spawn_rift_frame(z_position + 3.0, rift_level)
 	var pattern := rng.randi_range(0, 5)
 	match pattern:
 		0:
@@ -553,6 +574,21 @@ func _spawn_segment(z_position: float) -> void:
 		_spawn_gate(z_position - 2.0, 1 if side < 0.0 else 2)
 		_spawn_pickup(Vector3(side * rng.randf_range(7.0, 8.7), rng.randf_range(-4.2, 4.2), z_position - 2.0), "life")
 		secret_life_claimed = true
+
+
+func _spawn_rift_frame(z_position: float, level: int) -> void:
+	var colors := [Color(0.18, 0.86, 1.0), Color(0.9, 0.29, 1.0), Color(1.0, 0.53, 0.2)]
+	var tint: Color = colors[(level - 1) % colors.size()]
+	var frame := Node3D.new()
+	frame.position.z = z_position
+	frame.set_meta("spin", Vector3(0.0, 0.0, 0.0))
+	var glow_tint := tint.lightened(0.18)
+	for side in [-1.0, 1.0]:
+		frame.add_child(_make_block(Vector3(side * 12.2, 0.0, 0.0), Vector3(0.42, 15.2, 0.5), tint, true))
+		frame.add_child(_make_block(Vector3(0.0, side * 7.45, 0.0), Vector3(24.8, 0.38, 0.5), glow_tint, true))
+		frame.add_child(_make_block(Vector3(side * 11.65, side * 6.95, 0.0), Vector3(1.5, 0.28, 0.5), Color(0.95, 0.95, 1.0), true))
+	course_root.add_child(frame)
+	course_objects.append(frame)
 
 
 func _spawn_gate(z_position: float, open_index: int) -> void:
@@ -702,9 +738,11 @@ func _on_hazard_body_entered(body: Node3D, hazard: Area3D) -> void:
 	if armor_charge > 0:
 		armor_charge -= 1
 		invulnerability = 1.0
+		camera_shake = 0.24
 		run_score += 25
 		return
 	lives -= 1
+	camera_shake = 0.65
 	invulnerability = 1.8
 	steering_target = Vector2.ZERO
 	_update_hud()
@@ -732,6 +770,7 @@ func _activate_boost() -> void:
 	if state != ScreenState.RUN or boost_cooldown > 0.0:
 		return
 	boost_time = boost_duration
+	camera_shake = maxf(camera_shake, 0.16)
 	boost_speed = 17.0 if equipped_parts.has("boost_core") else 11.0
 	boost_cooldown = 5.2
 	invulnerability = maxf(invulnerability, 0.5)
@@ -767,11 +806,15 @@ func _input(event: InputEvent) -> void:
 	if state != ScreenState.RUN:
 		return
 	if event is InputEventScreenDrag:
-		_update_steering_from_screen(event.position)
-	elif event is InputEventScreenTouch and event.pressed:
-		_update_steering_from_screen(event.position)
+		if steering_touch_index == event.index:
+			_update_steering_from_delta(event.relative)
+	elif event is InputEventScreenTouch:
+		if event.pressed and event.position.x < get_viewport().get_visible_rect().size.x * 0.78:
+			steering_touch_index = event.index
+		elif not event.pressed and steering_touch_index == event.index:
+			steering_touch_index = -1
 	elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		_update_steering_from_screen(event.position)
+		_update_steering_from_delta(event.relative)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE:
 			firing = true
@@ -785,14 +828,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			firing = false
 
 
-func _update_steering_from_screen(pointer: Vector2) -> void:
+func _update_steering_from_delta(drag_delta: Vector2) -> void:
 	var bounds := get_viewport().get_visible_rect().size
-	if pointer.x > bounds.x * 0.76:
-		return
-	var x_fraction := (pointer.x / bounds.x - 0.5) * 2.0
-	var y_fraction := (0.5 - pointer.y / bounds.y) * 2.0
-	steering_target.x = clampf(x_fraction * 9.2, -9.2, 9.2)
-	steering_target.y = clampf(y_fraction * 5.2, -5.2, 5.2)
+	steering_target.x = clampf(steering_target.x + drag_delta.x * 16.0 / bounds.x, -9.2, 9.2)
+	steering_target.y = clampf(steering_target.y - drag_delta.y * 11.0 / bounds.y, -5.2, 5.2)
 
 
 func _load_profile() -> void:
