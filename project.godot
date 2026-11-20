@@ -25,4 +25,5 @@ renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
 environment/defaults/default_clear_color=Color(0.012, 0.02, 0.055, 1)
 textures/default_filters/use_nearest_mipmap_filter=false
+textures/vram_compression/import_etc2_astc=true
 
