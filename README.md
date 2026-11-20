@@ -32,10 +32,10 @@ The exporter writes a GLB with Blender's Y-up to Godot's coordinate conversion e
 
 The `Android` Godot export preset targets landscape ARM64 and uses the repository's temporary test debug key so successive review APKs can install as updates. The key is public by design and must only be used for development builds. It is not a release or store signing key. If the key is replaced, uninstall the existing test APK before installing the newly signed build.
 
-To export locally, install the Android SDK packages listed above, configure the Java SDK and Android SDK paths in Godot Editor Settings, and install the Godot 4.5.1 export templates. The helper decodes the tracked public test key when needed, then exports the APK:
+To export locally, install the Android SDK packages listed above, configure the Java SDK and Android SDK paths in Godot Editor Settings, install the Godot 4.5.1 export templates, then run:
 
 ```sh
-bash tools/android/export_debug.sh
+godot --headless --path . --export-debug Android build/BlockRiftRunner.apk
 ```
 
 GitHub Actions builds the same debug APK on pushes to `main` and on manual dispatch, then publishes it as a workflow artifact. It never uses release signing credentials.

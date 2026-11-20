@@ -15,8 +15,6 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
       - name: Install Android export packages
         run: |
           yes | sdkmanager --licenses >/dev/null
@@ -36,7 +34,6 @@ jobs:
           curl -fsSL "$BASE/Godot_v4.5.1-stable_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
           chmod +x "$RUNNER_TEMP/godot/Godot_v4.5.1-stable_linux.x86_64"
-          ln -s "$RUNNER_TEMP/godot/Godot_v4.5.1-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
           TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.5.1.stable"
           mkdir -p "$TEMPLATE_DIR" "$RUNNER_TEMP/templates"
           unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
