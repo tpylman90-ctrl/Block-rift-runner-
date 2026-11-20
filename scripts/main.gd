@@ -278,6 +278,7 @@ func _build_space_background_layer() -> void:
 	space_background.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	space_background.material_override = StandardMaterial3D.new()
 	space_background.material_override.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	space_background.material_override.albedo_color = Color(0.015, 0.04, 0.09)
 	space_background.material_override.cull_mode = BaseMaterial3D.CULL_DISABLED
 	camera.add_child(space_background)
 	_fit_space_background()
@@ -305,16 +306,15 @@ func _choose_background_view() -> void:
 	selected_background_angle = choice % BACKGROUND_ANGLES
 	var source := load(SPACE_BACKGROUNDS[selected_background_index]) as Texture2D
 	if is_instance_valid(space_background) and source:
-		var atlas := AtlasTexture.new()
-		atlas.atlas = source
-		var texture_size := source.get_size()
 		var x_scale := 0.72
 		var y_scale := 0.82
 		var x_offset := float(selected_background_angle) * (1.0 - x_scale) / float(BACKGROUND_ANGLES - 1)
 		var y_offset := float((selected_background_index + selected_background_angle) % 3) * (1.0 - y_scale) / 2.0
-		atlas.region = Rect2(texture_size.x * x_offset, texture_size.y * y_offset, texture_size.x * x_scale, texture_size.y * y_scale)
 		var material := space_background.material_override as StandardMaterial3D
-		material.albedo_texture = atlas
+		material.albedo_color = Color.WHITE
+		material.albedo_texture = source
+		material.uv1_offset = Vector3(x_offset, y_offset, 0.0)
+		material.uv1_scale = Vector3(x_scale, y_scale, 1.0)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 
 
@@ -640,7 +640,7 @@ func _build_ui() -> void:
 	builder_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_panel.add_child(builder_shade)
 	var builder_window := PanelContainer.new()
-	builder_window.anchor_right = 0.315
+	builder_window.anchor_right = 0.27
 	builder_window.anchor_bottom = 1.0
 	builder_window.offset_left = 18.0
 	builder_window.offset_top = 18.0
@@ -1018,15 +1018,15 @@ func _layout_ui() -> void:
 		radar_widget.size = Vector2(minf(h * 0.22, w * 0.12), minf(h * 0.22, w * 0.12))
 		boost_meter.position = Vector2(w - action_button_width - 28.0, h * 0.63)
 		boost_meter.size = Vector2(action_button_width, h * 0.035)
-		builder_preview_label.position = Vector2(w * 0.32, h * 0.025)
-		builder_preview_label.size = Vector2(w * 0.48, h * 0.075)
-		builder_place_label.position = Vector2(w * 0.32, h * 0.105)
-		builder_place_label.size = Vector2(w * 0.48, h * 0.055)
-		builder_stats_panel.position = Vector2(w * 0.815, h * 0.18)
-		builder_stats_panel.size = Vector2(w * 0.17, h * 0.59)
+		builder_preview_label.position = Vector2(w * 0.275, h * 0.025)
+		builder_preview_label.size = Vector2(w * 0.50, h * 0.075)
+		builder_place_label.position = Vector2(w * 0.275, h * 0.105)
+		builder_place_label.size = Vector2(w * 0.50, h * 0.055)
+		builder_stats_panel.position = Vector2(w * 0.79, h * 0.16)
+		builder_stats_panel.size = Vector2(w * 0.195, h * 0.68)
 		var placement_tools := builder_rotate_button.get_parent() as HBoxContainer
-		placement_tools.position = Vector2(w * 0.32, h * 0.88)
-		placement_tools.size = Vector2(w * 0.48, h * 0.085)
+		placement_tools.position = Vector2(w * 0.275, h * 0.88)
+		placement_tools.size = Vector2(w * 0.50, h * 0.085)
 		for tool_button in [builder_rotate_button, builder_remove_button, builder_depth_back_button, builder_depth_forward_button, builder_clear_button]:
 			tool_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
@@ -1060,9 +1060,9 @@ func _show_builder() -> void:
 	player.visible = true
 	build_grid_root.visible = true
 	player.rotation = Vector3.ZERO
-	camera.fov = 62.0
-	camera.position = player.position + Vector3(1.5, 1.0, 14.5)
-	camera.look_at(player.position + Vector3(-2.0, 0.0, 0.0), Vector3.UP)
+	camera.fov = 56.0
+	camera.position = player.position + Vector3(0.25, 0.25, 9.0)
+	camera.look_at(player.position + Vector3(-0.3, 0.0, 0.0), Vector3.UP)
 	active_category = "ALL"
 	_update_shop_buttons()
 
@@ -1328,7 +1328,7 @@ func _finish_builder_drag(screen_position: Vector2) -> bool:
 	if did_drag:
 		builder_drag_ghost.visible = false
 		var viewport_size := get_viewport().get_visible_rect().size
-		if screen_position.x > viewport_size.x * 0.31 and screen_position.x < viewport_size.x * 0.81 and screen_position.y > viewport_size.y * 0.17 and screen_position.y < viewport_size.y * 0.88:
+		if screen_position.x > viewport_size.x * 0.27 and screen_position.x < viewport_size.x * 0.79 and screen_position.y > viewport_size.y * 0.17 and screen_position.y < viewport_size.y * 0.88:
 			if source.begins_with("move:"):
 				_move_placed_block(int(source.trim_prefix("move:")), screen_position)
 			elif source.begins_with("part:"):
@@ -1583,9 +1583,8 @@ func _process(delta: float) -> void:
 			return
 		if is_instance_valid(player):
 			if state == ScreenState.BUILDER:
-				player.rotation.y += delta * 0.24
-				camera.position = camera.position.lerp(player.position + Vector3(1.5, 1.0, 14.5), minf(delta * 3.0, 1.0))
-				camera.look_at(player.position + Vector3(-2.0, 0.0, 0.0), Vector3.UP)
+				camera.position = camera.position.lerp(player.position + Vector3(0.25, 0.25, 9.0), minf(delta * 5.0, 1.0))
+				camera.look_at(player.position + Vector3(-0.3, 0.0, 0.0), Vector3.UP)
 			else:
 				camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
 				camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
@@ -2043,7 +2042,7 @@ func _input(event: InputEvent) -> void:
 				builder_dragging = false
 			else:
 				var did_drag := _finish_builder_drag(event.position)
-				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 18.0 and event.position.x > screen_width * 0.27 and event.position.x < screen_width * 0.79 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
 				builder_drag_source = ""
@@ -2056,7 +2055,7 @@ func _input(event: InputEvent) -> void:
 				builder_dragging = false
 			else:
 				var did_drag := _finish_builder_drag(event.position)
-				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
+				if builder_pointer_active and not did_drag and event.position.distance_to(builder_pointer_start) < 8.0 and event.position.x > screen_width * 0.27 and event.position.x < screen_width * 0.79 and event.position.y > get_viewport().get_visible_rect().size.y * 0.17 and event.position.y < get_viewport().get_visible_rect().size.y * 0.88:
 					_place_selected_block(event.position)
 				builder_pointer_active = false
 				builder_drag_source = ""
@@ -2065,14 +2064,14 @@ func _input(event: InputEvent) -> void:
 			_move_builder_drag(event.position)
 			if builder_dragging:
 				return
-			if event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81:
+			if event.position.x > screen_width * 0.27 and event.position.x < screen_width * 0.79:
 				player.rotation.y += event.relative.x * 0.006
 				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
 		elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_move_builder_drag(event.position)
 			if builder_dragging:
 				return
-			if event.position.x > screen_width * 0.31 and event.position.x < screen_width * 0.81:
+			if event.position.x > screen_width * 0.27 and event.position.x < screen_width * 0.79:
 				player.rotation.y += event.relative.x * 0.006
 				player.rotation.x = clampf(player.rotation.x + event.relative.y * 0.004, -0.55, 0.55)
 		return
