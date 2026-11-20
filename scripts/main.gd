@@ -137,11 +137,29 @@ func _build_world() -> void:
 	camera.current = true
 	camera.fov = 78.0
 	add_child(camera)
+	_build_space_backdrop()
 
 	course_root = Node3D.new()
 	course_root.name = "GeneratedCourse"
 	add_child(course_root)
 	_build_starfield()
+
+
+func _build_space_backdrop() -> void:
+	var backdrop := MeshInstance3D.new()
+	backdrop.name = "PhotoSpaceBackdrop"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1760.0, 990.0)
+	backdrop.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.disable_fog = true
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	material.albedo_texture = load("res://art/backgrounds/rift-way-background.png")
+	backdrop.material_override = material
+	backdrop.position = Vector3(0.0, 0.0, -360.0)
+	camera.add_child(backdrop)
 
 
 func _load_asteroid_models() -> void:
@@ -341,6 +359,7 @@ func _build_ui() -> void:
 	for category in PART_CATEGORIES:
 		var tab := _button(category, 15)
 		tab.custom_minimum_size = Vector2(0.0, 48.0)
+		tab.set_meta("builder_component", true)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.pressed.connect(_set_builder_category.bind(category))
 		builder_tabs.add_child(tab)
@@ -376,7 +395,7 @@ func _build_ui() -> void:
 		thumbnail.custom_minimum_size = Vector2(260.0, 118.0)
 		thumbnail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		thumbnail.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		var preview_path := str(item.preview)
 		if ResourceLoader.exists(preview_path):
 			thumbnail.texture = load(preview_path)
@@ -387,6 +406,7 @@ func _build_ui() -> void:
 		card_column.add_child(part_hint)
 		var part_button := _button("", 15)
 		part_button.custom_minimum_size = Vector2(0.0, 42.0)
+		part_button.set_meta("builder_component", true)
 		part_button.pressed.connect(_on_shop_part_pressed.bind(part_id))
 		card_column.add_child(part_button)
 		builder_grid.add_child(card)
@@ -399,6 +419,7 @@ func _build_ui() -> void:
 	builder_footer.add_child(shop_note)
 	var back := _button("FLIGHT DECK", 17)
 	back.custom_minimum_size = Vector2(180.0, 46.0)
+	back.set_meta("builder_component", true)
 	back.pressed.connect(_show_hangar)
 	builder_footer.add_child(back)
 	builder_preview_label = _label("3D SHIP PREVIEW\nDRAG TO ORBIT  •  %d / 4 BLOCKS" % equipped_parts.size(), 21, Color(0.78, 0.9, 1.0))
@@ -512,6 +533,9 @@ func _layout_ui() -> void:
 	var h := viewport_size.y
 	var button_width := clampf(w * 0.23, 300.0, 480.0)
 	for control in ui_root.find_children("*", "Button", true, false):
+		if control.get_meta("builder_component", false):
+			control.custom_minimum_size.y = 48.0
+			continue
 		control.custom_minimum_size.x = button_width
 		control.custom_minimum_size.y = clampf(h * 0.085, 58.0, 92.0)
 	if title_label:
@@ -855,13 +879,13 @@ func _spawn_rock_hazard(at: Vector3, dimensions: Vector3, tint: Color, spin: Vec
 	shape.size = dimensions * 0.82
 	shape_node.shape = shape
 	rock.add_child(shape_node)
-	rock.add_child(_make_block(Vector3.ZERO, dimensions * 0.72, tint))
-	for index in range(3):
-		var shard_size := dimensions * Vector3(rng.randf_range(0.34, 0.62), rng.randf_range(0.34, 0.68), rng.randf_range(0.34, 0.62))
-		var offset := Vector3(rng.randf_range(-dimensions.x * 0.36, dimensions.x * 0.36), rng.randf_range(-dimensions.y * 0.36, dimensions.y * 0.36), rng.randf_range(-dimensions.z * 0.36, dimensions.z * 0.36))
-		var shard := _make_block(offset, shard_size, tint.lightened(rng.randf_range(0.06, 0.26)))
-		shard.rotation = Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45), rng.randf_range(-0.45, 0.45))
-		rock.add_child(shard)
+	if not asteroid_templates.is_empty():
+		var visual: Node3D = asteroid_templates[rng.randi_range(0, asteroid_templates.size() - 1)].duplicate()
+		visual.scale = dimensions / Vector3(4.2, 3.6, 3.6)
+		visual.rotation = Vector3(rng.randf_range(-0.4, 0.4), rng.randf_range(-0.7, 0.7), rng.randf_range(-0.4, 0.4))
+		rock.add_child(visual)
+	else:
+		rock.add_child(_make_block(Vector3.ZERO, dimensions * 0.72, tint))
 	rock.body_entered.connect(_on_hazard_body_entered.bind(rock))
 	rock.set_meta("spin", spin)
 	course_root.add_child(rock)

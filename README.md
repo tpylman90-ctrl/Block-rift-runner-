@@ -12,6 +12,7 @@ A standalone, low-poly space-flight arcade game built with Godot. Courses are as
 - Scrap and unlocked ship blocks persist between runs. Four modular parts can be bought and equipped in the hangar; the active build resets after a run ends.
 - Separate ship-builder window with category tabs, photo-style previews, scrap costs, and a rotatable live ship preview.
 - Blender-authored low-poly ship modules and three asteroid models used in the generated flight corridors, with the editable source scene and generation script included.
+- A high-resolution deep-space photo backdrop frames the flight path; detailed, smooth-shaded asteroid hazards contrast with the intentionally blocky low-poly ship.
 
 This is an early playable build. Flight feel, collision spacing, and touch sizing are ready for device feedback and tuning.
 

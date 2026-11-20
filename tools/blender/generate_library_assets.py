@@ -1,4 +1,4 @@
-"""Build Block Rift Runner's editable, low-poly ship-block library and thumbnails."""
+"""Build low-poly ship blocks, high-poly asteroid obstacles, and preview images."""
 import math
 import os
 import random
@@ -66,7 +66,7 @@ def cyl(name, location, radius, depth, material, vertices=8, rotation=(0, 0, 0))
 
 def ico_rock(name, location, scale, material_index=0, seed=0):
     random.seed(seed + 4082)
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=1.0, location=location)
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3, radius=1.0, location=location)
     obj = bpy.context.object
     obj.name = name
     for vertex in obj.data.vertices:
@@ -75,7 +75,7 @@ def ico_rock(name, location, scale, material_index=0, seed=0):
     obj.scale = scale
     obj.data.materials.append(ROCKS[material_index % len(ROCKS)])
     for polygon in obj.data.polygons:
-        polygon.use_smooth = False
+        polygon.use_smooth = True
     return obj
 
 
@@ -278,4 +278,4 @@ for variant in range(3):
         bpy.context.view_layer.objects.active = objects[0]
         bpy.ops.export_scene.gltf(filepath=asteroid_path, export_format="GLB", use_selection=True, export_apply=True)
 save_library_source()
-print("Generated Blender part previews, editable .blend library, modular GLBs, and three asteroid variants.")
+print("Generated low-poly ship previews and three high-poly asteroid variants in the editable Blender library.")
