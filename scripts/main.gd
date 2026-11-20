@@ -36,7 +36,7 @@ const ASTEROID_VARIANTS := [
 	"res://art/library/models/asteroid_2.glb",
 	"res://art/library/models/asteroid_3.glb",
 ]
-var asteroid_scenes: Array[PackedScene] = []
+var asteroid_templates: Array[Node3D] = []
 
 var state: ScreenState = ScreenState.HANGAR
 var rng := RandomNumberGenerator.new()
@@ -154,9 +154,7 @@ func _load_asteroid_models() -> void:
 			continue
 		var model_scene := gltf.generate_scene(gltf_state)
 		if model_scene:
-			asteroid_scenes.append(PackedScene.new())
-			asteroid_scenes.back().pack(model_scene)
-			model_scene.free()
+			asteroid_templates.append(model_scene)
 func _build_starfield() -> void:
 	var cube := BoxMesh.new()
 	cube.size = Vector3(0.11, 0.11, 0.11)
@@ -803,12 +801,12 @@ func _spawn_rift_frame(z_position: float, level: int) -> void:
 
 
 func _spawn_asteroid_corridor(z_position: float) -> void:
-	if asteroid_scenes.is_empty():
+	if asteroid_templates.is_empty():
 		return
 	for side in [-1.0, 1.0]:
 		var count := rng.randi_range(3, 5)
 		for i in range(count):
-			var rock: Node3D = asteroid_scenes[rng.randi_range(0, asteroid_scenes.size() - 1)].instantiate()
+			var rock: Node3D = asteroid_templates[rng.randi_range(0, asteroid_templates.size() - 1)].duplicate()
 			rock.position = Vector3(side * rng.randf_range(17.0, 24.0), rng.randf_range(-9.2, 9.2), z_position - rng.randf_range(0.0, 46.0))
 			rock.rotation = Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.8, 0.8), rng.randf_range(-0.7, 0.7))
 			var rock_scale := rng.randf_range(0.7, 1.35)
