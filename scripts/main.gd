@@ -1365,6 +1365,8 @@ func _move_builder_drag(screen_position: Vector2) -> void:
 		_update_shop_buttons()
 	if builder_dragging:
 		builder_drag_ghost.position = screen_position - builder_drag_ghost.size * 0.5
+		if builder_drag_source.begins_with("move:"):
+			_preview_move_placed_block(int(builder_drag_source.trim_prefix("move:")), screen_position)
 
 
 func _finish_builder_drag(screen_position: Vector2) -> bool:
@@ -1407,6 +1409,25 @@ func _move_placed_block(index: int, screen_position: Vector2) -> void:
 	_save_profile()
 	shop_status.text = "%s MOVED ON BUILD GRID" % str(PARTS.get(part_id, {}).get("title", part_id))
 	_update_shop_buttons()
+
+
+func _preview_move_placed_block(index: int, screen_position: Vector2) -> void:
+	if index < 0 or index >= part_placements.size():
+		return
+	var placement: Dictionary = part_placements[index]
+	var part_id := str(placement.get("id", ""))
+	var current_position: Vector3 = placement.get("position", Vector3.ZERO)
+	placement_depth = current_position.z
+	var target := _screen_to_ship_position(screen_position, placement_depth)
+	var snapped := _snap_free_grid(target, part_id, float(placement.get("rotation", 0.0)), index)
+	if snapped.x < -100.0:
+		return
+	var next_position := Vector3(snapped.x, snapped.y, placement_depth)
+	if next_position.is_equal_approx(current_position):
+		return
+	part_placements[index].position = next_position
+	selected_placement_index = index
+	_rebuild_ship_mesh()
 
 
 func _sync_equipped_parts() -> void:
