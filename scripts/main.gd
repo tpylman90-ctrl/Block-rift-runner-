@@ -111,6 +111,7 @@ const PARTS := {
 }
 
 const PART_CATEGORIES := ["ALL", "HULL", "WINGS", "ENGINES", "WEAPONS", "SHIELDS", "ARMOR"]
+const BUILDER_SPACE_ORIGIN := Vector3(500.0, 0.0, 0.0)
 const ASTEROID_VARIANTS := [
 	"res://art/library/models/asteroid_1.glb",
 	"res://art/library/models/asteroid_2.glb",
@@ -123,6 +124,7 @@ var rng := RandomNumberGenerator.new()
 var player: CharacterBody3D
 var build_grid_root: Node3D
 var camera: Camera3D
+var builder_camera: Camera3D
 var course_root: Node3D
 var ui_root: Control
 var menu_panel: CenterContainer
@@ -253,6 +255,13 @@ func _build_world() -> void:
 	camera.current = true
 	camera.fov = 78.0
 	add_child(camera)
+	builder_camera = Camera3D.new()
+	builder_camera.name = "ShipWorkshopCamera"
+	builder_camera.current = false
+	builder_camera.fov = 48.0
+	builder_camera.position = BUILDER_SPACE_ORIGIN + Vector3(0.15, 0.15, 7.5)
+	builder_camera.look_at(BUILDER_SPACE_ORIGIN, Vector3.UP)
+	add_child(builder_camera)
 	_build_space_background_layer()
 	_build_space_backdrop()
 
@@ -406,7 +415,9 @@ func _build_ship_grid() -> void:
 	grid_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	grid_material.albedo_color = Color(0.18, 0.68, 0.92, 0.34)
 	grid_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	grid_material.no_depth_test = true
+	# Keep the grid behind the ship geometry. Disabling depth testing made every
+	# line draw through blocks and turned the editor into a web of cyan rays.
+	grid_material.no_depth_test = false
 	var grid_instance := MeshInstance3D.new()
 	grid_instance.mesh = grid_mesh
 	grid_instance.material_override = grid_material
@@ -431,7 +442,7 @@ func _build_ship_grid() -> void:
 	frame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	frame_material.albedo_color = Color(0.22, 0.84, 1.0, 0.8)
 	frame_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	frame_material.no_depth_test = true
+	frame_material.no_depth_test = false
 	var frame_instance := MeshInstance3D.new()
 	frame_instance.mesh = frame_mesh
 	frame_instance.material_override = frame_material
@@ -1033,6 +1044,8 @@ func _layout_ui() -> void:
 
 func _show_hangar() -> void:
 	state = ScreenState.HANGAR
+	camera.current = true
+	builder_camera.current = false
 	menu_panel.visible = true
 	shop_panel.visible = false
 	game_over_panel.visible = false
@@ -1042,8 +1055,11 @@ func _show_hangar() -> void:
 	firing = false
 	if is_instance_valid(player):
 		player.visible = true
-		build_grid_root.visible = false
 		player.position = Vector3(0.0, -0.4, 0.0)
+		course_root.visible = true
+		stars.visible = true
+		space_background.visible = true
+		build_grid_root.visible = false
 		player.rotation = Vector3.ZERO
 		camera.position = Vector3(0.0, 3.7, 10.5)
 		camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
@@ -1053,16 +1069,24 @@ func _show_hangar() -> void:
 
 func _show_builder() -> void:
 	state = ScreenState.BUILDER
+	camera.current = false
+	builder_camera.current = true
 	menu_panel.visible = false
 	shop_panel.visible = true
 	game_over_panel.visible = false
 	hud.visible = false
+	# Workshop is a dedicated spatial workspace, away from the flight corridor.
+	# This prevents course obstacles and moving scenery from leaking into the editor.
+	course_root.visible = false
+	stars.visible = false
+	space_background.visible = false
 	player.visible = true
+	player.position = BUILDER_SPACE_ORIGIN
 	build_grid_root.visible = true
 	player.rotation = Vector3.ZERO
-	camera.fov = 56.0
-	camera.position = player.position + Vector3(0.25, 0.25, 9.0)
-	camera.look_at(player.position + Vector3(-0.3, 0.0, 0.0), Vector3.UP)
+	builder_camera.fov = 48.0
+	builder_camera.position = BUILDER_SPACE_ORIGIN + Vector3(0.15, 0.15, 7.5)
+	builder_camera.look_at(BUILDER_SPACE_ORIGIN, Vector3.UP)
 	active_category = "ALL"
 	_update_shop_buttons()
 
@@ -1169,8 +1193,8 @@ func _place_selected_block(screen_position: Vector2) -> void:
 
 
 func _screen_to_ship_position(screen_position: Vector2, depth: float) -> Vector2:
-	var ray_origin := camera.project_ray_origin(screen_position)
-	var ray_direction := camera.project_ray_normal(screen_position)
+	var ray_origin := builder_camera.project_ray_origin(screen_position)
+	var ray_direction := builder_camera.project_ray_normal(screen_position)
 	var inverse := player.global_transform.affine_inverse()
 	var local_origin := inverse * ray_origin
 	var local_direction := inverse.basis * ray_direction
@@ -1272,7 +1296,7 @@ func _part_under_pointer(screen_position: Vector2) -> String:
 		var card: Control = builder_cards[part_id]
 		if owned_parts.has(part_id) and card.visible and card.get_global_rect().has_point(screen_position):
 			return "part:" + str(part_id)
-	if screen_position.x > get_viewport().get_visible_rect().size.x * 0.65:
+	if screen_position.x > get_viewport().get_visible_rect().size.x * 0.27 and screen_position.x < get_viewport().get_visible_rect().size.x * 0.79:
 		var picked := _pick_placed_block(screen_position)
 		if picked >= 0:
 			selected_placement_index = picked
@@ -1285,14 +1309,38 @@ func _part_under_pointer(screen_position: Vector2) -> String:
 
 func _pick_placed_block(screen_position: Vector2) -> int:
 	var closest_index := -1
-	var closest_distance := 48.0
+	var closest_depth := INF
 	for index in range(part_placements.size()):
 		var placement: Dictionary = part_placements[index]
 		var local_position: Vector3 = placement.get("position", Vector3.ZERO)
-		var screen_point := camera.unproject_position(player.to_global(local_position))
-		var pointer_distance := screen_point.distance_to(screen_position)
-		if pointer_distance < closest_distance:
-			closest_distance = pointer_distance
+		var dimensions := _part_dim_vector(str(placement.get("id", "")))
+		var rotation := float(placement.get("rotation", 0.0))
+		var half_x := dimensions.x * 0.5
+		var half_y := dimensions.y * 0.5
+		if int(round(absf(rotation) / (PI * 0.5))) % 2 == 1:
+			var swap := half_x
+			half_x = half_y
+			half_y = swap
+		var screen_bounds := Rect2()
+		var has_point := false
+		var nearest_depth := INF
+		for x_sign in [-1.0, 1.0]:
+			for y_sign in [-1.0, 1.0]:
+				for z_sign in [-1.0, 1.0]:
+					var corner := local_position + Vector3(half_x * x_sign, half_y * y_sign, dimensions.z * 0.5 * z_sign)
+					corner = local_position + Vector3(half_x * x_sign, half_y * y_sign, dimensions.z * 0.5 * z_sign).rotated(Vector3.BACK, rotation)
+					var world_corner := player.to_global(corner)
+					if builder_camera.is_position_behind(world_corner):
+						continue
+					var projected := builder_camera.unproject_position(world_corner)
+					if not has_point:
+						screen_bounds = Rect2(projected, Vector2.ZERO)
+						has_point = true
+					else:
+						screen_bounds = screen_bounds.expand(projected)
+					nearest_depth = minf(nearest_depth, builder_camera.global_position.distance_to(world_corner))
+		if has_point and screen_bounds.grow(16.0).has_point(screen_position) and nearest_depth < closest_depth:
+			closest_depth = nearest_depth
 			closest_index = index
 	return closest_index
 
@@ -1497,6 +1545,11 @@ func _start_run() -> void:
 	course_root.position = Vector3.ZERO
 	player.position = Vector3.ZERO
 	player.rotation = Vector3.ZERO
+	camera.current = true
+	builder_camera.current = false
+	course_root.visible = true
+	stars.visible = true
+	space_background.visible = true
 	camera.fov = 78.0
 	player.visible = true
 	build_grid_root.visible = false
@@ -1555,6 +1608,11 @@ func _continue_run() -> void:
 	steering_target = Vector2.ZERO
 	player.position = Vector3.ZERO
 	player.rotation = Vector3.ZERO
+	camera.current = true
+	builder_camera.current = false
+	course_root.visible = true
+	stars.visible = true
+	space_background.visible = true
 	player.visible = true
 	build_grid_root.visible = false
 	for item in course_objects:
@@ -1583,8 +1641,8 @@ func _process(delta: float) -> void:
 			return
 		if is_instance_valid(player):
 			if state == ScreenState.BUILDER:
-				camera.position = camera.position.lerp(player.position + Vector3(0.25, 0.25, 9.0), minf(delta * 5.0, 1.0))
-				camera.look_at(player.position + Vector3(-0.3, 0.0, 0.0), Vector3.UP)
+				builder_camera.position = builder_camera.position.lerp(player.position + Vector3(0.15, 0.15, 7.5), minf(delta * 5.0, 1.0))
+				builder_camera.look_at(player.position, Vector3.UP)
 			else:
 				camera.position = camera.position.lerp(player.position + Vector3(0.0, 3.7, 10.5), minf(delta * 3.0, 1.0))
 				camera.look_at(player.position + Vector3(0.0, 0.0, -8.0), Vector3.UP)
